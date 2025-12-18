@@ -1,3 +1,4 @@
+// app/(tabs)/index.tsx
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
@@ -7,15 +8,22 @@ import {
   Alert,
   Animated,
   Dimensions,
-  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+// !!! путь поправь под свою структуру
+import AppHeader, {
+  type AgeGroup,
+  type ChildChip,
+  getAgeGroupStyle,
+} from '../../components/common/AppHeader';
+import AskAvaFab from '../../components/common/AskAvaFab';
 
 const { width } = Dimensions.get('window');
 
@@ -38,17 +46,7 @@ type RoutineState = {
 
 type RoutineMap = Record<string, RoutineState>;
 
-type AgeGroup = 'baby' | 'toddler' | 'preschool' | 'unknown';
 type Mood = 'happy' | 'excited' | 'tired' | 'worried' | null;
-
-type ChildChip = {
-  id: string;
-  name: string;
-  tag: string;
-  ageGroup: AgeGroup;
-  color: string;
-  emoji: string;
-};
 
 type ChildPlan = {
   morningTitle: string;
@@ -189,19 +187,6 @@ const calculateAgeGroup = (
   return 'preschool';
 };
 
-const getAgeGroupStyle = (ageGroup: AgeGroup) => {
-  switch (ageGroup) {
-    case 'baby':
-      return { color: '#3B82F6', emoji: '👶', gradient: ['#93C5FD', '#60A5FA'] as const };
-    case 'toddler':
-      return { color: '#10B981', emoji: '🧒', gradient: ['#34D399', '#10B981'] as const };
-    case 'preschool':
-      return { color: '#8B5CF6', emoji: '👦', gradient: ['#A78BFA', '#8B5CF6'] as const };
-    default:
-      return { color: '#6B7280', emoji: '👤', gradient: ['#9CA3AF', '#6B7280'] as const };
-  }
-};
-
 const getPlanForChild = (name: string, ageGroup: AgeGroup): ChildPlan => {
   const shortName = (name || 'ребёнок').split(' ')[0];
 
@@ -269,30 +254,6 @@ const getPlanForChild = (name: string, ageGroup: AgeGroup): ChildPlan => {
 // =====================
 
 type MaterialsTab = 'all' | 'mini_game' | 'video' | 'activity';
-const AskAvaFab: React.FC<{ onPress: () => void }> = ({ onPress }) => {
-  return (
-    <View pointerEvents="box-none" style={styles.fabLayer}>
-      <TouchableOpacity activeOpacity={0.9} onPress={onPress} style={styles.fabWrap}>
-        {/* Плашка "Ask Ava" (glass) */}
-        <View style={styles.fabGlass}>
-          <View style={styles.fabDot} />
-          <Text style={styles.fabLabel}>Ask Ava</Text>
-          <Text style={styles.fabHint}>AI • советы • развитие</Text>
-        </View>
-
-        {/* Кнопка справа */}
-        <LinearGradient colors={['#6366F1', '#EC4899'] as const} style={styles.fabCircle}>
-          <Text style={styles.fabIcon}>✦</Text>
-
-          {/* маленький бейдж */}
-          <View style={styles.fabBadge}>
-            <Text style={styles.fabBadgeText}>AI</Text>
-          </View>
-        </LinearGradient>
-      </TouchableOpacity>
-    </View>
-  );
-};
 
 const HomeScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -313,12 +274,10 @@ const HomeScreen: React.FC = () => {
   const [moodMap, setMoodMap] = useState<Record<string, Mood>>({});
   const [noteMap, setNoteMap] = useState<Record<string, string>>({});
 
-  // материалы — UI state
   const [materialsTab, setMaterialsTab] = useState<MaterialsTab>('all');
   const [materialsQuery, setMaterialsQuery] = useState('');
   const [lastContentTitle, setLastContentTitle] = useState<string | null>(null);
 
-  // ДОП: streak / мотивация
   const [streakDays, setStreakDays] = useState<number>(0);
   const [streakDoneToday, setStreakDoneToday] = useState<boolean>(false);
 
@@ -329,7 +288,7 @@ const HomeScreen: React.FC = () => {
     ]).start();
   }, [fadeAnim, scaleAnim]);
 
-  // загрузка данных
+  // загрузка данных профиля
   useEffect(() => {
     const loadData = async () => {
       try {
@@ -381,7 +340,6 @@ const HomeScreen: React.FC = () => {
       name,
       tag: 'Основной профиль',
       ageGroup: mainAgeGroup,
-      color: mainStyle.color,
       emoji: mainStyle.emoji,
     };
 
@@ -393,7 +351,6 @@ const HomeScreen: React.FC = () => {
         name: c.name && c.name.trim().length > 0 ? c.name : `Ребёнок ${index + 2}`,
         tag: 'Дополнительно',
         ageGroup,
-        color: style.color,
         emoji: style.emoji,
       };
     });
@@ -401,7 +358,7 @@ const HomeScreen: React.FC = () => {
     return [base, ...extras];
   }, [childName, extraChildren, mainBirthMonth, mainBirthYear]);
 
-  // init maps
+  // init maps (routine, mood, notes)
   useEffect(() => {
     setRoutineMap(prev => {
       const updated: RoutineMap = { ...prev };
@@ -443,7 +400,8 @@ const HomeScreen: React.FC = () => {
   const activeRoutine: RoutineState =
     (activeChildId && routineMap[activeChildId]) || { morning: false, day: false, evening: false };
 
-  const activeMood: Mood = activeChildId && moodMap[activeChildId] ? moodMap[activeChildId] : null;
+  const activeMood: Mood =
+    activeChildId && moodMap[activeChildId] ? moodMap[activeChildId] : null;
 
   const activeNote: string =
     activeChildId && typeof noteMap[activeChildId] === 'string' ? noteMap[activeChildId] : '';
@@ -483,7 +441,7 @@ const HomeScreen: React.FC = () => {
       const current = prev[activeChildId] || { morning: false, day: false, evening: false };
       const next = { ...current, [key]: !current[key] };
 
-      // streak: если впервые за сегодня стало >=1 выполнено — отметим doneToday и обновим streak
+      // streak
       const prevCount = Object.values(current).filter(Boolean).length;
       const nextCount = Object.values(next).filter(Boolean).length;
       if (prevCount === 0 && nextCount > 0) {
@@ -527,12 +485,17 @@ const HomeScreen: React.FC = () => {
   };
 
   const handleQuickAction = (type: 'routine' | 'ideas' | 'question') => {
-    if (type === 'routine') Alert.alert('Режим дня', 'Скоро здесь появится отдельный экран режима 😊');
-    if (type === 'ideas') Alert.alert('Идеи игр', `Скоро появится подборка для ${activeChild?.name}.`);
-    if (type === 'question') router.push('/chat' as any); // <-- ВАЖНО: это и есть чат-страница
+    if (type === 'routine') {
+      Alert.alert('Режим дня', 'Скоро здесь появится отдельный экран режима 😊');
+    }
+    if (type === 'ideas') {
+      Alert.alert('Идеи игр', `Скоро появится подборка для ${activeChild?.name}.`);
+    }
+    if (type === 'question') {
+      router.push('/chat' as any);
+    }
   };
 
-  // ======= streak (добавил)
   const todayKey = () => {
     const d = new Date();
     const y = d.getFullYear();
@@ -567,7 +530,10 @@ const HomeScreen: React.FC = () => {
       const now = todayKey();
 
       if (!raw) {
-        await AsyncStorage.setItem(`streak_${childId}`, JSON.stringify({ days: 1, doneDate: now }));
+        await AsyncStorage.setItem(
+          `streak_${childId}`,
+          JSON.stringify({ days: 1, doneDate: now })
+        );
         setStreakDays(1);
         return;
       }
@@ -576,7 +542,7 @@ const HomeScreen: React.FC = () => {
       const prevDays = typeof parsed?.days === 'number' ? parsed.days : 0;
       const prevDone = parsed?.doneDate;
 
-      if (prevDone === now) return; // уже отмечено сегодня
+      if (prevDone === now) return;
 
       await AsyncStorage.setItem(
         `streak_${childId}`,
@@ -592,7 +558,7 @@ const HomeScreen: React.FC = () => {
     loadStreak(activeChildId ?? 'main');
   }, [activeChildId]);
 
-  // ======= материалы: последнее открытое
+  // материалы: последнее
   useEffect(() => {
     const readLast = async () => {
       try {
@@ -632,7 +598,6 @@ const HomeScreen: React.FC = () => {
     Alert.alert(item.title, 'Скоро откроем этот материал 😊');
   };
 
-  // фильтр материалов под возраст + таб + поиск
   const materialsForActive = useMemo(() => {
     const group = activeChild?.ageGroup ?? 'unknown';
     const q = materialsQuery.trim().toLowerCase();
@@ -650,7 +615,6 @@ const HomeScreen: React.FC = () => {
   }, [activeChild?.ageGroup, materialsTab, materialsQuery]);
 
   const featured = useMemo(() => materialsForActive[0] ?? null, [materialsForActive]);
-
   const games = useMemo(
     () => materialsForActive.filter(x => x.kind === 'mini_game').slice(0, 10),
     [materialsForActive]
@@ -684,16 +648,11 @@ const HomeScreen: React.FC = () => {
     return 'Упражнение';
   };
 
-  // ======= плавающая кнопка чата должна двигаться вместе со скроллом (внутри ScrollView)
   const openChat = () => router.push('/chat' as any);
-
-  // =====================
-  // UI
-  // =====================
 
   if (loading) {
     return (
-      <LinearGradient colors={['#6366F1', '#8B5CF6'] as const} style={styles.loadingContainer}>
+      <LinearGradient colors={['#6366F1', '#8B5CF6']} style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#FFFFFF" />
         <Text style={styles.loadingText}>Загрузка...</Text>
       </LinearGradient>
@@ -702,67 +661,22 @@ const HomeScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
-      {/* ======= HEADER (оставили) ======= */}
-      <LinearGradient
-        colors={['#6366F1', '#8B5CF6'] as const}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 0 }}
-        style={styles.topPanel}
-      >
-        <View style={styles.topPanelHeader}>
-          <View style={styles.logoContainer}>
-            <Text style={styles.headerLogo}>Erte</Text>
-            <Text style={[styles.headerLogo, styles.headerLogoAccent]}>Damu</Text>
-          </View>
+      {/* общий header */}
+      <AppHeader
+        childrenList={childrenList}
+        activeChildIndex={activeChildIndex}
+        onChangeChild={setActiveChildIndex}
+        onLogout={handleLogout}
+      />
 
-          <TouchableOpacity onPress={handleLogout} activeOpacity={0.8} style={styles.logoutButton}>
-            <LinearGradient
-              colors={['rgba(255,255,255,0.2)', 'rgba(255,255,255,0.1)'] as const}
-              style={styles.logoutButtonGradient}
-            >
-              <Text style={styles.logoutButtonText}>Выйти</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.childrenScrollContent}>
-          {childrenList.map((child, index) => {
-            const isActive = index === activeChildIndex;
-            const style = getAgeGroupStyle(child.ageGroup);
-            const inactiveGradient = ['#F1F5F9', '#E2E8F0'] as const;
-
-            return (
-              <TouchableOpacity
-                key={child.id}
-                onPress={() => setActiveChildIndex(index)}
-                activeOpacity={0.85}
-                style={styles.childChipContainer}
-              >
-                <LinearGradient colors={isActive ? style.gradient : inactiveGradient} style={[styles.childChip, isActive && styles.childChipActive]}>
-                  <View style={styles.childChipIcon}>
-                    <Text style={styles.childChipEmoji}>{child.emoji}</Text>
-                  </View>
-                  <View style={styles.childChipTextContainer}>
-                    <Text style={[styles.childChipName, isActive && styles.childChipNameActive]}>{child.name}</Text>
-                    <Text style={[styles.childChipTag, isActive && styles.childChipTagActive]}>{child.tag}</Text>
-                  </View>
-                  {isActive && (
-                    <View style={styles.activeIndicator}>
-                      <Text style={styles.activeIndicatorText}>•</Text>
-                    </View>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-      </LinearGradient>
-
-      {/* ======= BODY ======= */}
+      {/* BODY */}
       <View style={styles.body}>
-        <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
           <Animated.View style={{ opacity: fadeAnim, transform: [{ scale: scaleAnim }] }}>
-            {/* HERO */}
+            {/* hero */}
             <View style={styles.heroCard}>
               <View style={styles.heroRow}>
                 <View style={{ flex: 1 }}>
@@ -771,11 +685,15 @@ const HomeScreen: React.FC = () => {
                     <Text style={styles.heroTitleAccent}>{greetingName}</Text>
                   </Text>
                   <Text style={styles.heroSub}>
-                    Сегодня фокус: <Text style={styles.heroSubBold}>{activeChild?.name}</Text>
+                    Сегодня фокус:{' '}
+                    <Text style={styles.heroSubBold}>{activeChild?.name}</Text>
                   </Text>
                 </View>
 
-                <LinearGradient colors={['#8B5CF6', '#7C3AED'] as const} style={styles.heroAvatar}>
+                <LinearGradient
+                  colors={['#8B5CF6', '#7C3AED']}
+                  style={styles.heroAvatar}
+                >
                   <Text style={styles.heroAvatarText}>
                     {greetingName !== 'Семья' ? greetingName[0]?.toUpperCase() : '👪'}
                   </Text>
@@ -785,14 +703,18 @@ const HomeScreen: React.FC = () => {
               <View style={styles.heroStatsRow}>
                 <View style={styles.heroStat}>
                   <Text style={styles.heroStatLabel}>Прогресс</Text>
-                  <Text style={styles.heroStatValue}>{Math.round(progress * 100)}%</Text>
+                  <Text style={styles.heroStatValue}>
+                    {Math.round(progress * 100)}%
+                  </Text>
                 </View>
 
                 <View style={styles.heroStatDivider} />
 
                 <View style={styles.heroStat}>
                   <Text style={styles.heroStatLabel}>Выполнено</Text>
-                  <Text style={styles.heroStatValue}>{completedCount}/{totalCount}</Text>
+                  <Text style={styles.heroStatValue}>
+                    {completedCount}/{totalCount}
+                  </Text>
                 </View>
 
                 <View style={styles.heroStatDivider} />
@@ -803,17 +725,16 @@ const HomeScreen: React.FC = () => {
                 </View>
               </View>
 
-              {/* ДОБАВИЛ: «План на 10 минут» */}
               <View style={styles.microPlan}>
                 <Text style={styles.microTitle}>⚡ План на 10 минут</Text>
                 <Text style={styles.microText}>
-                  Сделайте 1 пункт из «Сегодня» + 1 мини-материал. Этого достаточно, чтобы день считался продуктивным.
+                  Сделайте 1 пункт из «Сегодня» + 1 мини-материал. Этого достаточно,
+                  чтобы день считался продуктивным.
                 </Text>
                 <View style={styles.microActions}>
                   <TouchableOpacity
                     activeOpacity={0.9}
                     onPress={() => {
-                      // открыть featured, если есть
                       if (featured) openContent(featured);
                       else Alert.alert('Материалы', 'Пока нет подборки под фильтры.');
                     }}
@@ -827,7 +748,11 @@ const HomeScreen: React.FC = () => {
                     onPress={() => setMaterialsTab('mini_game')}
                     style={[styles.microBtn, styles.microBtnGhost]}
                   >
-                    <Text style={[styles.microBtnText, styles.microBtnTextGhost]}>Игры</Text>
+                    <Text
+                      style={[styles.microBtnText, styles.microBtnTextGhost]}
+                    >
+                      Игры
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -838,7 +763,9 @@ const HomeScreen: React.FC = () => {
               <View style={styles.sectionHeaderRow}>
                 <Text style={styles.sectionTitle}>Сегодня</Text>
                 <View style={styles.pillCounter}>
-                  <Text style={styles.pillCounterText}>{Math.round(progress * 100)}%</Text>
+                  <Text style={styles.pillCounterText}>
+                    {Math.round(progress * 100)}%
+                  </Text>
                 </View>
               </View>
 
@@ -846,43 +773,85 @@ const HomeScreen: React.FC = () => {
                 <TouchableOpacity
                   activeOpacity={0.9}
                   onPress={() => toggleRoutineForActive('morning')}
-                  style={[styles.todayCard, activeRoutine.morning && styles.todayCardActive]}
+                  style={[
+                    styles.todayCard,
+                    activeRoutine.morning && styles.todayCardActive,
+                  ]}
                 >
                   <View style={styles.todayTop}>
                     <Text style={styles.todayEmoji}>🌅</Text>
-                    <View style={[styles.checkDot, activeRoutine.morning ? styles.checkDotOn : styles.checkDotOff]} />
+                    <View
+                      style={[
+                        styles.checkDot,
+                        activeRoutine.morning
+                          ? styles.checkDotOn
+                          : styles.checkDotOff,
+                      ]}
+                    />
                   </View>
                   <Text style={styles.todayTitle}>{plan.morningTitle}</Text>
-                  <Text style={styles.todayText} numberOfLines={3}>{plan.morningText}</Text>
-                  <Text style={styles.todayCTA}>{activeRoutine.morning ? 'Сделано ✓' : 'Отметить'}</Text>
+                  <Text style={styles.todayText} numberOfLines={3}>
+                    {plan.morningText}
+                  </Text>
+                  <Text style={styles.todayCTA}>
+                    {activeRoutine.morning ? 'Сделано ✓' : 'Отметить'}
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   activeOpacity={0.9}
                   onPress={() => toggleRoutineForActive('day')}
-                  style={[styles.todayCard, activeRoutine.day && styles.todayCardActive]}
+                  style={[
+                    styles.todayCard,
+                    activeRoutine.day && styles.todayCardActive,
+                  ]}
                 >
                   <View style={styles.todayTop}>
                     <Text style={styles.todayEmoji}>🌤️</Text>
-                    <View style={[styles.checkDot, activeRoutine.day ? styles.checkDotOn : styles.checkDotOff]} />
+                    <View
+                      style={[
+                        styles.checkDot,
+                        activeRoutine.day
+                          ? styles.checkDotOn
+                          : styles.checkDotOff,
+                      ]}
+                    />
                   </View>
                   <Text style={styles.todayTitle}>{plan.dayTitle}</Text>
-                  <Text style={styles.todayText} numberOfLines={3}>{plan.dayText}</Text>
-                  <Text style={styles.todayCTA}>{activeRoutine.day ? 'Сделано ✓' : 'Отметить'}</Text>
+                  <Text style={styles.todayText} numberOfLines={3}>
+                    {plan.dayText}
+                  </Text>
+                  <Text style={styles.todayCTA}>
+                    {activeRoutine.day ? 'Сделано ✓' : 'Отметить'}
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
                   activeOpacity={0.9}
                   onPress={() => toggleRoutineForActive('evening')}
-                  style={[styles.todayCard, activeRoutine.evening && styles.todayCardActive]}
+                  style={[
+                    styles.todayCard,
+                    activeRoutine.evening && styles.todayCardActive,
+                  ]}
                 >
                   <View style={styles.todayTop}>
                     <Text style={styles.todayEmoji}>🌙</Text>
-                    <View style={[styles.checkDot, activeRoutine.evening ? styles.checkDotOn : styles.checkDotOff]} />
+                    <View
+                      style={[
+                        styles.checkDot,
+                        activeRoutine.evening
+                          ? styles.checkDotOn
+                          : styles.checkDotOff,
+                      ]}
+                    />
                   </View>
                   <Text style={styles.todayTitle}>{plan.eveningTitle}</Text>
-                  <Text style={styles.todayText} numberOfLines={3}>{plan.eveningText}</Text>
-                  <Text style={styles.todayCTA}>{activeRoutine.evening ? 'Сделано ✓' : 'Отметить'}</Text>
+                  <Text style={styles.todayText} numberOfLines={3}>
+                    {plan.eveningText}
+                  </Text>
+                  <Text style={styles.todayCTA}>
+                    {activeRoutine.evening ? 'Сделано ✓' : 'Отметить'}
+                  </Text>
                 </TouchableOpacity>
               </View>
 
@@ -898,13 +867,19 @@ const HomeScreen: React.FC = () => {
                 <View>
                   <Text style={styles.sectionTitle}>Материалы</Text>
                   <Text style={styles.sectionSub}>
-                    Для <Text style={styles.sectionSubBold}>{activeChild?.name}</Text>
+                    Для{' '}
+                    <Text style={styles.sectionSubBold}>
+                      {activeChild?.name}
+                    </Text>
                   </Text>
                 </View>
 
                 {lastContentTitle ? (
                   <View style={styles.lastBadge}>
-                    <Text style={styles.lastBadgeText} numberOfLines={1}>
+                    <Text
+                      style={styles.lastBadgeText}
+                      numberOfLines={1}
+                    >
                       Продолжить: {lastContentTitle}
                     </Text>
                   </View>
@@ -920,53 +895,92 @@ const HomeScreen: React.FC = () => {
                   placeholderTextColor="#94A3B8"
                   style={styles.searchInput}
                 />
-                {materialsQuery.length > 0 ? (
-                  <TouchableOpacity onPress={() => setMaterialsQuery('')} activeOpacity={0.85}>
+                {materialsQuery.length > 0 && (
+                  <TouchableOpacity
+                    onPress={() => setMaterialsQuery('')}
+                    activeOpacity={0.85}
+                  >
                     <Text style={styles.searchClear}>✕</Text>
                   </TouchableOpacity>
-                ) : null}
+                )}
               </View>
 
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.tabsScroll}>
-                {(['all', 'mini_game', 'video', 'activity'] as MaterialsTab[]).map(t => {
-                  const active = materialsTab === t;
-                  return (
-                    <TouchableOpacity
-                      key={t}
-                      onPress={() => setMaterialsTab(t)}
-                      activeOpacity={0.9}
-                      style={[styles.tabPill, active && styles.tabPillActive]}
-                    >
-                      <Text style={[styles.tabPillText, active && styles.tabPillTextActive]}>
-                        {tabIcon(t)} {tabLabel(t)}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.tabsScroll}
+              >
+                {(['all', 'mini_game', 'video', 'activity'] as MaterialsTab[]).map(
+                  t => {
+                    const active = materialsTab === t;
+                    return (
+                      <TouchableOpacity
+                        key={t}
+                        onPress={() => setMaterialsTab(t)}
+                        activeOpacity={0.9}
+                        style={[
+                          styles.tabPill,
+                          active && styles.tabPillActive,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.tabPillText,
+                            active && styles.tabPillTextActive,
+                          ]}
+                        >
+                          {tabIcon(t)} {tabLabel(t)}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  }
+                )}
               </ScrollView>
 
               {featured ? (
-                <TouchableOpacity activeOpacity={0.92} onPress={() => openContent(featured)} style={styles.featuredWrap}>
-                  <LinearGradient colors={featured.gradient as any} style={styles.featuredCard}>
+                <TouchableOpacity
+                  activeOpacity={0.92}
+                  onPress={() => openContent(featured)}
+                  style={styles.featuredWrap}
+                >
+                  <LinearGradient
+                    colors={featured.gradient as any}
+                    style={styles.featuredCard}
+                  >
                     <View style={styles.featuredTop}>
                       <Text style={styles.featuredEmoji}>{featured.emoji}</Text>
                       <View style={styles.featuredMeta}>
-                        <Text style={styles.featuredMetaText}>{kindLabel(featured.kind)}</Text>
-                        {typeof featured.minutes === 'number' ? (
-                          <Text style={styles.featuredMetaText}> • {featured.minutes} мин</Text>
-                        ) : null}
-                        {featured.difficulty ? (
-                          <Text style={styles.featuredMetaText}> • {featured.difficulty}</Text>
-                        ) : null}
+                        <Text style={styles.featuredMetaText}>
+                          {kindLabel(featured.kind)}
+                        </Text>
+                        {typeof featured.minutes === 'number' && (
+                          <Text style={styles.featuredMetaText}>
+                            {' '}
+                            • {featured.minutes} мин
+                          </Text>
+                        )}
+                        {featured.difficulty && (
+                          <Text style={styles.featuredMetaText}>
+                            {' '}
+                            • {featured.difficulty}
+                          </Text>
+                        )}
                       </View>
                     </View>
 
                     <Text style={styles.featuredTitle}>{featured.title}</Text>
-                    <Text style={styles.featuredDesc} numberOfLines={2}>{featured.desc}</Text>
+                    <Text
+                      style={styles.featuredDesc}
+                      numberOfLines={2}
+                    >
+                      {featured.desc}
+                    </Text>
 
                     <View style={styles.featuredBottom}>
                       <View style={styles.featuredTag}>
-                        <Text style={styles.featuredTagText}>{featured.tag ?? 'Подборка дня'}</Text>
+                        <Text style={styles.featuredTagText}>
+                          {featured.tag ?? 'Подборка дня'}
+                        </Text>
                       </View>
                       <View style={styles.featuredCta}>
                         <Text style={styles.featuredCtaText}>
@@ -984,7 +998,8 @@ const HomeScreen: React.FC = () => {
                 <View style={styles.emptyCard}>
                   <Text style={styles.emptyTitle}>Пока нет материалов</Text>
                   <Text style={styles.emptyText}>
-                    Для этого возраста сейчас нет совпадений по фильтрам. Попробуйте «Все» или очистите поиск.
+                    Для этого возраста сейчас нет совпадений по фильтрам.
+                    Попробуйте «Все» или очистите поиск.
                   </Text>
                 </View>
               )}
@@ -996,14 +1011,38 @@ const HomeScreen: React.FC = () => {
                       <View style={styles.rowHeader}>
                         <Text style={styles.rowTitle}>Игры</Text>
                       </View>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                      >
                         {games.map(item => (
-                          <TouchableOpacity key={item.id} activeOpacity={0.9} onPress={() => openContent(item)} style={styles.smallCardWrap}>
-                            <LinearGradient colors={item.gradient as any} style={styles.smallCard}>
-                              <Text style={styles.smallEmoji}>{item.emoji}</Text>
-                              <Text style={styles.smallTitle} numberOfLines={1}>{item.title}</Text>
-                              <Text style={styles.smallMeta} numberOfLines={1}>
-                                {item.minutes ? `${item.minutes} мин` : 'коротко'} • {item.difficulty ?? 'легко'}
+                          <TouchableOpacity
+                            key={item.id}
+                            activeOpacity={0.9}
+                            onPress={() => openContent(item)}
+                            style={styles.smallCardWrap}
+                          >
+                            <LinearGradient
+                              colors={item.gradient as any}
+                              style={styles.smallCard}
+                            >
+                              <Text style={styles.smallEmoji}>
+                                {item.emoji}
+                              </Text>
+                              <Text
+                                style={styles.smallTitle}
+                                numberOfLines={1}
+                              >
+                                {item.title}
+                              </Text>
+                              <Text
+                                style={styles.smallMeta}
+                                numberOfLines={1}
+                              >
+                                {item.minutes
+                                  ? `${item.minutes} мин`
+                                  : 'коротко'}{' '}
+                                • {item.difficulty ?? 'легко'}
                               </Text>
                             </LinearGradient>
                           </TouchableOpacity>
@@ -1017,14 +1056,38 @@ const HomeScreen: React.FC = () => {
                       <View style={styles.rowHeader}>
                         <Text style={styles.rowTitle}>Видео</Text>
                       </View>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                      >
                         {videos.map(item => (
-                          <TouchableOpacity key={item.id} activeOpacity={0.9} onPress={() => openContent(item)} style={styles.smallCardWrap}>
-                            <LinearGradient colors={item.gradient as any} style={styles.smallCard}>
-                              <Text style={styles.smallEmoji}>{item.emoji}</Text>
-                              <Text style={styles.smallTitle} numberOfLines={1}>{item.title}</Text>
-                              <Text style={styles.smallMeta} numberOfLines={1}>
-                                {item.minutes ? `${item.minutes} мин` : 'коротко'} • {item.tag ?? 'видео'}
+                          <TouchableOpacity
+                            key={item.id}
+                            activeOpacity={0.9}
+                            onPress={() => openContent(item)}
+                            style={styles.smallCardWrap}
+                          >
+                            <LinearGradient
+                              colors={item.gradient as any}
+                              style={styles.smallCard}
+                            >
+                              <Text style={styles.smallEmoji}>
+                                {item.emoji}
+                              </Text>
+                              <Text
+                                style={styles.smallTitle}
+                                numberOfLines={1}
+                              >
+                                {item.title}
+                              </Text>
+                              <Text
+                                style={styles.smallMeta}
+                                numberOfLines={1}
+                              >
+                                {item.minutes
+                                  ? `${item.minutes} мин`
+                                  : 'коротко'}{' '}
+                                • {item.tag ?? 'видео'}
                               </Text>
                             </LinearGradient>
                           </TouchableOpacity>
@@ -1038,14 +1101,38 @@ const HomeScreen: React.FC = () => {
                       <View style={styles.rowHeader}>
                         <Text style={styles.rowTitle}>Упражнения</Text>
                       </View>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                      >
                         {activities.map(item => (
-                          <TouchableOpacity key={item.id} activeOpacity={0.9} onPress={() => openContent(item)} style={styles.smallCardWrap}>
-                            <LinearGradient colors={item.gradient as any} style={styles.smallCard}>
-                              <Text style={styles.smallEmoji}>{item.emoji}</Text>
-                              <Text style={styles.smallTitle} numberOfLines={1}>{item.title}</Text>
-                              <Text style={styles.smallMeta} numberOfLines={1}>
-                                {item.minutes ? `${item.minutes} мин` : 'коротко'} • {item.tag ?? 'активность'}
+                          <TouchableOpacity
+                            key={item.id}
+                            activeOpacity={0.9}
+                            onPress={() => openContent(item)}
+                            style={styles.smallCardWrap}
+                          >
+                            <LinearGradient
+                              colors={item.gradient as any}
+                              style={styles.smallCard}
+                            >
+                              <Text style={styles.smallEmoji}>
+                                {item.emoji}
+                              </Text>
+                              <Text
+                                style={styles.smallTitle}
+                                numberOfLines={1}
+                              >
+                                {item.title}
+                              </Text>
+                              <Text
+                                style={styles.smallMeta}
+                                numberOfLines={1}
+                              >
+                                {item.minutes
+                                  ? `${item.minutes} мин`
+                                  : 'коротко'}{' '}
+                                • {item.tag ?? 'активность'}
                               </Text>
                             </LinearGradient>
                           </TouchableOpacity>
@@ -1057,16 +1144,36 @@ const HomeScreen: React.FC = () => {
               ) : (
                 <View style={styles.grid}>
                   {materialsForActive.slice(0, 12).map(item => (
-                    <TouchableOpacity key={item.id} activeOpacity={0.9} onPress={() => openContent(item)} style={styles.gridItemWrap}>
-                      <LinearGradient colors={item.gradient as any} style={styles.gridItem}>
+                    <TouchableOpacity
+                      key={item.id}
+                      activeOpacity={0.9}
+                      onPress={() => openContent(item)}
+                      style={styles.gridItemWrap}
+                    >
+                      <LinearGradient
+                        colors={item.gradient as any}
+                        style={styles.gridItem}
+                      >
                         <View style={styles.gridTop}>
                           <Text style={styles.gridEmoji}>{item.emoji}</Text>
                           <View style={styles.gridBadge}>
-                            <Text style={styles.gridBadgeText}>{kindLabel(item.kind)}</Text>
+                            <Text style={styles.gridBadgeText}>
+                              {kindLabel(item.kind)}
+                            </Text>
                           </View>
                         </View>
-                        <Text style={styles.gridTitle} numberOfLines={1}>{item.title}</Text>
-                        <Text style={styles.gridDesc} numberOfLines={2}>{item.desc}</Text>
+                        <Text
+                          style={styles.gridTitle}
+                          numberOfLines={1}
+                        >
+                          {item.title}
+                        </Text>
+                        <Text
+                          style={styles.gridDesc}
+                          numberOfLines={2}
+                        >
+                          {item.desc}
+                        </Text>
                       </LinearGradient>
                     </TouchableOpacity>
                   ))}
@@ -1081,7 +1188,9 @@ const HomeScreen: React.FC = () => {
               </View>
 
               <View style={styles.softCard}>
-                <Text style={styles.softLabel}>Как сейчас {activeChild?.name}?</Text>
+                <Text style={styles.softLabel}>
+                  Как сейчас {activeChild?.name}?
+                </Text>
 
                 <View style={styles.moodRow}>
                   {[
@@ -1096,10 +1205,20 @@ const HomeScreen: React.FC = () => {
                         key={item.key || 'none'}
                         onPress={() => setMoodForActive(item.key)}
                         activeOpacity={0.85}
-                        style={[styles.moodChip, selected && styles.moodChipActive]}
+                        style={[
+                          styles.moodChip,
+                          selected && styles.moodChipActive,
+                        ]}
                       >
-                        <Text style={styles.moodChipEmoji}>{item.emoji}</Text>
-                        <Text style={[styles.moodChipText, selected && styles.moodChipTextActive]}>
+                        <Text style={styles.moodChipEmoji}>
+                          {item.emoji}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.moodChipText,
+                            selected && styles.moodChipTextActive,
+                          ]}
+                        >
                           {item.label}
                         </Text>
                       </TouchableOpacity>
@@ -1135,12 +1254,18 @@ const HomeScreen: React.FC = () => {
               </View>
 
               <View style={styles.twoCards}>
-                <LinearGradient colors={['#ECFDF5', '#D1FAE5'] as const} style={styles.infoCard}>
+                <LinearGradient
+                  colors={['#ECFDF5', '#D1FAE5']}
+                  style={styles.infoCard}
+                >
                   <Text style={styles.infoCardTitle}>🧘‍♀️ Пауза</Text>
                   <Text style={styles.infoCardText}>{plan.parentPause}</Text>
                 </LinearGradient>
 
-                <LinearGradient colors={['#FEF3C7', '#FDE68A'] as const} style={styles.infoCard}>
+                <LinearGradient
+                  colors={['#FEF3C7', '#FDE68A']}
+                  style={styles.infoCard}
+                >
                   <Text style={styles.infoCardTitle}>🔍 Наблюдение</Text>
                   <Text style={styles.infoCardText}>{plan.observation}</Text>
                 </LinearGradient>
@@ -1149,10 +1274,13 @@ const HomeScreen: React.FC = () => {
 
             <View style={styles.bottomSpacing} />
           </Animated.View>
-
-
         </ScrollView>
-        <AskAvaFab onPress={() => router.push('/chat' as any)} />
+
+        {/* плавающая AI-кнопка — приподнята над таб-баром */}
+        <AskAvaFab
+          onPress={openChat}
+          bottomInset={15}
+        />
       </View>
     </SafeAreaView>
   );
@@ -1170,75 +1298,8 @@ const styles = StyleSheet.create({
   loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   loadingText: { color: '#FFFFFF', fontSize: 16, marginTop: 12, fontWeight: '500' },
 
-  // ===== HEADER (оставили) =====
-  topPanel: {
-    paddingTop: Platform.OS === 'ios' ? 34 : 22,
-    paddingBottom: 14,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.22,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  topPanelHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    marginBottom: 14,
-  },
-  logoContainer: { flexDirection: 'row', alignItems: 'center' },
-  headerLogo: { fontSize: 22, fontWeight: '800', color: '#FFFFFF', letterSpacing: 0.5 },
-  headerLogoAccent: { fontWeight: '900' },
-  logoutButton: { borderRadius: 20, overflow: 'hidden' },
-  logoutButtonGradient: { paddingHorizontal: 16, paddingVertical: 7, borderRadius: 20 },
-  logoutButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
+  body: { flex: 1, position: 'relative' },
 
-  childrenScrollContent: { paddingHorizontal: 24, paddingBottom: 6 },
-  childChipContainer: { marginRight: 12 },
-  childChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    minWidth: 160,
-  },
-  childChipActive: {
-    shadowColor: '#8B5CF6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 5,
-  },
-  childChipIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.9)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: 12,
-  },
-  childChipEmoji: { fontSize: 18 },
-  childChipTextContainer: { flex: 1 },
-  childChipName: { fontSize: 14, fontWeight: '600', color: '#1E293B' },
-  childChipNameActive: { color: '#FFFFFF' },
-  childChipTag: { fontSize: 12, color: '#CBD5F5', marginTop: 2 },
-  childChipTagActive: { color: 'rgba(255,255,255,0.9)' },
-  activeIndicator: { marginLeft: 8 },
-  activeIndicatorText: { fontSize: 24, color: '#FFFFFF' },
-
-  body: { flex: 1, position: "relative"},
-  
-  // BODY
   scrollContent: { paddingTop: 16, paddingHorizontal: 20, paddingBottom: 100 },
 
   section: { marginBottom: 18 },
@@ -1294,7 +1355,6 @@ const styles = StyleSheet.create({
   heroStatValue: { fontSize: 16, color: '#0F172A', fontWeight: '900' },
   heroStatDivider: { width: 1, backgroundColor: '#E2E8F0', marginHorizontal: 10 },
 
-  // micro plan (добавил)
   microPlan: {
     marginTop: 12,
     backgroundColor: '#0F172A',
@@ -1312,7 +1372,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   microBtnText: { color: '#0F172A', fontWeight: '900', fontSize: 12 },
-  microBtnGhost: { backgroundColor: 'rgba(255,255,255,0.18)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)' },
+  microBtnGhost: {
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.25)',
+  },
   microBtnTextGhost: { color: '#FFFFFF' },
 
   // today
@@ -1408,16 +1472,35 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 5,
   },
-  featuredTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  featuredTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
   featuredEmoji: { fontSize: 26 },
   featuredMeta: { flexDirection: 'row', alignItems: 'center' },
   featuredMetaText: { color: 'rgba(255,255,255,0.92)', fontSize: 12, fontWeight: '800' },
   featuredTitle: { marginTop: 12, fontSize: 18, color: '#FFFFFF', fontWeight: '900' },
   featuredDesc: { marginTop: 6, fontSize: 12, color: 'rgba(255,255,255,0.92)', lineHeight: 17 },
-  featuredBottom: { marginTop: 14, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  featuredTag: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999 },
+  featuredBottom: {
+    marginTop: 14,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  featuredTag: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
   featuredTagText: { color: '#FFFFFF', fontWeight: '900', fontSize: 11 },
-  featuredCta: { backgroundColor: 'rgba(255,255,255,0.95)', paddingHorizontal: 14, paddingVertical: 10, borderRadius: 999 },
+  featuredCta: {
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 999,
+  },
   featuredCtaText: { color: '#0F172A', fontWeight: '900', fontSize: 12 },
 
   emptyCard: {
@@ -1432,26 +1515,54 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 12, color: '#64748B', lineHeight: 17 },
 
   rowSection: { marginTop: 14 },
-  rowHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  rowHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
   rowTitle: { fontSize: 14, fontWeight: '900', color: '#0F172A' },
 
   smallCardWrap: { marginRight: 10 },
   smallCard: { width: 170, borderRadius: 18, padding: 14 },
   smallEmoji: { fontSize: 22, marginBottom: 10 },
   smallTitle: { color: '#FFFFFF', fontWeight: '900', fontSize: 13 },
-  smallMeta: { marginTop: 6, color: 'rgba(255,255,255,0.9)', fontSize: 11, fontWeight: '800' },
+  smallMeta: {
+    marginTop: 6,
+    color: 'rgba(255,255,255,0.9)',
+    fontSize: 11,
+    fontWeight: '800',
+  },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', marginTop: 12 },
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 12,
+  },
   gridItemWrap: { width: (width - 40 - 10) / 2, marginBottom: 10 },
   gridItem: { borderRadius: 18, padding: 14, minHeight: 130 },
-  gridTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  gridTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
   gridEmoji: { fontSize: 22 },
-  gridBadge: { backgroundColor: 'rgba(255,255,255,0.25)', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 999 },
+  gridBadge: {
+    backgroundColor: 'rgba(255,255,255,0.25)',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
   gridBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '900' },
   gridTitle: { marginTop: 10, color: '#FFFFFF', fontSize: 13, fontWeight: '900' },
-  gridDesc: { marginTop: 6, color: 'rgba(255,255,255,0.92)', fontSize: 11, lineHeight: 15 },
+  gridDesc: {
+    marginTop: 6,
+    color: 'rgba(255,255,255,0.92)',
+    fontSize: 11,
+    lineHeight: 15,
+  },
 
-  // mood + note
   softCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 22,
@@ -1480,10 +1591,20 @@ const styles = StyleSheet.create({
   },
   moodChipActive: { backgroundColor: '#EEF2FF', borderColor: '#A78BFA' },
   moodChipEmoji: { fontSize: 18, marginBottom: 4 },
-  moodChipText: { fontSize: 11, color: '#475569', textAlign: 'center', fontWeight: '800' },
+  moodChipText: {
+    fontSize: 11,
+    color: '#475569',
+    textAlign: 'center',
+    fontWeight: '800',
+  },
   moodChipTextActive: { color: '#4338CA' },
 
-  noteHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 8 },
+  noteHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+    marginBottom: 8,
+  },
   noteTitle: { fontSize: 13, fontWeight: '900', color: '#0F172A' },
   noteHint: { fontSize: 11, color: '#94A3B8', fontWeight: '800' },
 
@@ -1495,9 +1616,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 10,
   },
-  noteInput: { minHeight: 70, fontSize: 13, color: '#0F172A', textAlignVertical: 'top', fontWeight: '600' },
+  noteInput: {
+    minHeight: 70,
+    fontSize: 13,
+    color: '#0F172A',
+    textAlignVertical: 'top',
+    fontWeight: '600',
+  },
 
-  // info cards
   twoCards: { gap: 10 },
   infoCard: {
     borderRadius: 22,
@@ -1512,94 +1638,4 @@ const styles = StyleSheet.create({
   infoCardText: { fontSize: 13, color: '#334155', lineHeight: 18, fontWeight: '600' },
 
   bottomSpacing: { height: 26 },
-
-  fabLayer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    bottom: 0,
-    zIndex: 99999,
-    elevation: 99999,
-    pointerEvents: 'box-none',
-  },
-
-  fabWrap: {
-    position: 'absolute',
-    right: 16,
-    bottom: 22, // если есть bottom-tab: 80
-    flexDirection: 'row',
-    alignItems: 'center',
-    zIndex: 99999,
-    elevation: 99999,
-  },
-
-  // glass pill
-  fabGlass: {
-    height: 54,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderWidth: 1,
-    borderColor: 'rgba(148,163,184,0.35)',
-    marginRight: 10,
-
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 16,
-    elevation: 10,
-  },
-  fabDot: {
-    position: 'absolute',
-    left: 12,
-    top: 12,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#22C55E',
-  },
-  fabLabel: {
-    marginLeft: 10,
-    fontSize: 14,
-    fontWeight: '900',
-    color: '#0F172A',
-  },
-  fabHint: {
-    marginLeft: 10,
-    marginTop: 2,
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#64748B',
-  },
-
-  // circle action
-  fabCircle: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    justifyContent: 'center',
-    alignItems: 'center',
-
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.2,
-    shadowRadius: 18,
-    elevation: 16,
-  },
-  fabIcon: { color: '#FFFFFF', fontSize: 18, fontWeight: '900' },
-
-  fabBadge: {
-    position: 'absolute',
-    right: -2,
-    bottom: -2,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: '#0F172A',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
-  },
-  fabBadgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '900' },
 });
