@@ -379,7 +379,7 @@ const buildLibrary = (): ActivityItem[] => {
           ].filter(Boolean),
           skills: [meta.shortLabel, task.obj.split(' ')[0], 'Внимание'],
           milestone: i === 1 ? `Освоение навыка: ${task.t}` : undefined,
-          videoUrl: "https://media.istockphoto.com/id/1399445857/video/a-group-of-children-playing-tennis-portrait-of-happy-cute-diverse-tennis-players-standing.mp4?s=mp4-640x640-is&k=20&c=e4n13UsPtTX2OYQVtgtbId0ZvRYA0p76f_b-ona7rlg="
+          videoUrl: "https://storage.googleapis.com/my-app-videos-01/videomy.mp4"
         });
       }
     });

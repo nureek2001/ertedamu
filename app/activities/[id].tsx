@@ -141,10 +141,13 @@ const ActivityDetailsScreen: React.FC = () => {
             style={styles.video}
             // Здесь используйте activity.videoUrl, когда добавите его в базу данных
             source={{ uri: activity.videoUrl || '' }}
+
             useNativeControls
             resizeMode={ResizeMode.COVER}
             isLooping
+            shouldPlay
             onLoad={() => setIsVideoLoading(false)}
+            onError={(error) => console.log('Ошибка видео:', error)}
           />
         </View>
 
