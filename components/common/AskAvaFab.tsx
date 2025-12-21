@@ -20,7 +20,7 @@ const AskAvaFab: React.FC<AskAvaFabProps> = ({ onPress, bottomInset = 22 }) => {
         {/* плашка "Ask Ava" */}
         <View style={styles.fabGlass}>
           <View style={styles.fabDot} />
-          <Text style={styles.fabLabel}>Ask Ava</Text>
+          <Text style={styles.fabLabel}>Ask Erte Damu AI</Text>
           <Text style={styles.fabHint}>AI • советы • развитие</Text>
         </View>
 

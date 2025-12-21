@@ -1,41 +1,27 @@
-// components/common/AppHeader.tsx
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
-import React from 'react';
-import {
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
+import { router, useFocusEffect } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { AgeGroup } from '../../app/activities/data';
 
-/** Общий тип возраста, можно использовать в других файлах */
-export type AgeGroup = 'baby' | 'toddler' | 'preschool' | 'unknown';
-
-/** Тип ребёнка для header */
 export type ChildChip = {
   id: string;
   name: string;
   tag: string;
-  ageGroup?: AgeGroup;
+  ageGroup: AgeGroup;
+  ageMonths?: number;
   color?: string;
-  emoji?: string;
 };
 
-/** Вспомогательная функция – если нужно посчитать стиль по возрасту */
 export const getAgeGroupStyle = (ageGroup: AgeGroup) => {
   switch (ageGroup) {
-    case 'baby':
-      return { color: '#3B82F6', emoji: '👶' as const };
-    case 'toddler':
-      return { color: '#10B981', emoji: '🧒' as const };
-    case 'preschool':
-      return { color: '#8B5CF6', emoji: '👦' as const };
-    default:
-      return { color: '#6B7280', emoji: '👤' as const };
+    case 'baby': return { color: '#00F2FE', label: 'INFANT' };
+    case 'toddler': return { color: '#00FFD1', label: 'TODDLER' };
+    case 'preschool': return { color: '#A5FECB', label: 'PRESCHOOL' };
+    case 'school': return { color: '#FFD700', label: 'SCHOLAR' };
+    default: return { color: '#FFFFFF', label: 'CHILD' };
   }
 };
 
@@ -46,326 +32,197 @@ type AppHeaderProps = {
   onLogout?: () => void;
 };
 
-const AppHeader: React.FC<AppHeaderProps> = ({
-  childrenList,
-  activeChildIndex,
-  onChangeChild,
-  onLogout,
-}) => {
+const AppHeader: React.FC<AppHeaderProps> = ({ childrenList, activeChildIndex, onChangeChild, onLogout }) => {
+  const activeChild = childrenList[activeChildIndex];
+  const groupStyle = getAgeGroupStyle(activeChild?.ageGroup || 'unknown');
+  const [pName, setPName] = useState('РОДИТЕЛЬ');
+
+  // Умное получение имени пользователя (админ или родственник)
+  useFocusEffect(
+    useCallback(() => {
+      const getName = async () => {
+        try {
+          const role = await AsyncStorage.getItem('activeUserRole');
+          const adminName = await AsyncStorage.getItem('parentName');
+          const sessionName = await AsyncStorage.getItem('currentSessionName');
+
+          // Если залогинен админ — приоритет parentName
+          // Если родственник — приоритет currentSessionName
+          if (role === 'admin' && adminName) {
+            setPName(adminName.toUpperCase());
+          } else if (sessionName) {
+            setPName(sessionName.toUpperCase());
+          } else if (adminName) {
+            setPName(adminName.toUpperCase());
+          }
+        } catch (e) {
+          console.error('Error fetching header name', e);
+        }
+      };
+      getName();
+    }, [])
+  );
+
   return (
     <View style={styles.container}>
-      {/* Градиентный фон */}
       <LinearGradient
         colors={['#6366F1', '#8B5CF6']}
         start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
+        end={{ x: 1, y: 0 }}
         style={styles.backgroundGradient}
       />
       
-      {/* Блюр эффект */}
-      <BlurView intensity={80} tint="light" style={styles.blurView} />
-      
       <View style={styles.content}>
+        {/* Компактная верхняя панель */}
         <View style={styles.topBar}>
-          <View style={styles.logoContainer}>
-            <View style={styles.logoCircle}>
-              <Text style={styles.logoText}>ED</Text>
-            </View>
-            <View style={styles.logoTextContainer}>
-              <Text style={styles.logoMain}>Erte</Text>
-              <Text style={styles.logoAccent}>Damu</Text>
+          <View style={styles.brandGroup}>
+            <View style={styles.logoBox}><Text style={styles.logoText}>ED</Text></View>
+            <View>
+              <Text style={styles.activeChildName}>
+                {activeChild?.name?.toUpperCase() || 'РЕБЕНОК'} 
+                <Text style={[styles.activeChildTag, { color: groupStyle.color }]}>
+                  {activeChild ? ` • ${activeChild.tag.toUpperCase()}` : ''}
+                </Text>
+              </Text>
+              <Text style={styles.brandSubtitle}>ERTE DAMU ASSISTANT</Text>
             </View>
           </View>
 
-          {onLogout && (
-            <TouchableOpacity
-              onPress={onLogout}
-              activeOpacity={0.7}
-              style={styles.logoutButton}
+          <View style={styles.rightButtons}>
+            {/* ВЫДЕЛЕННАЯ КНОПКА ДЛЯ РОДИТЕЛЕЙ */}
+            <TouchableOpacity 
+              activeOpacity={0.8}
+              onPress={() => router.push('/parent' as any)} 
+              style={styles.parentBadgeBtn}
             >
-              <View style={styles.logoutIcon}>
-                <Ionicons name="log-out-outline" size={20} color="#FFFFFF" />
-              </View>
-              <Text style={styles.logoutText}>Выйти</Text>
+              <LinearGradient
+                colors={['#FFD700', '#F59E0B']} 
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={styles.parentBtnGradient}
+              >
+                <Ionicons name="person" size={11} color="#000" />
+                <Text style={styles.parentBtnText} numberOfLines={1}>
+                  {pName}
+                </Text>
+              </LinearGradient>
             </TouchableOpacity>
-          )}
+
+            {onLogout && (
+              <TouchableOpacity onPress={onLogout} style={styles.logoutBtnSmall}>
+                <Ionicons name="log-out-outline" size={16} color="rgba(255,255,255,0.7)" />
+              </TouchableOpacity>
+            )}
+          </View>
         </View>
 
-        <View style={styles.childrenSection}>
-          <Text style={styles.sectionTitle}>Выберите профиль</Text>
-          
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.childrenScrollContent}
-          >
-            {childrenList.map((child, index) => {
-              const isActive = index === activeChildIndex;
-
-              // если цвет/эмодзи не передали – считаем из возраста
-              const { color, emoji } = child.color && child.emoji
-                ? { color: child.color, emoji: child.emoji }
-                : getAgeGroupStyle(child.ageGroup ?? 'unknown');
-
-              return (
-                <TouchableOpacity
-                  key={child.id}
-                  onPress={() => onChangeChild(index)}
-                  activeOpacity={0.9}
-                  style={[
-                    styles.childCardWrapper,
-                    isActive && styles.childCardWrapperActive
-                  ]}
-                >
-                  {isActive ? (
-                    <LinearGradient
-                      colors={['#FFFFFF', '#F8FAFC']}
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.childCardActive}
-                    >
-                      <View style={styles.childCardContent}>
-                        <View style={[
-                          styles.childIconContainer,
-                          { backgroundColor: color + '20' }
-                        ]}>
-                          <Text style={styles.childIcon}>{emoji}</Text>
-                        </View>
-                        
-                        <View style={styles.childTextContainer}>
-                          <Text style={[
-                            styles.childName,
-                            { color }
-                          ]}>
-                            {child.name}
-                          </Text>
-                          <Text style={styles.childTag}>
-                            {child.tag}
-                          </Text>
-                        </View>
-                        
-                        <View style={[
-                          styles.activeIndicator,
-                          { backgroundColor: color }
-                        ]} />
-                      </View>
-                    </LinearGradient>
-                  ) : (
-                    <View style={styles.childCardInactive}>
-                      <View style={[
-                        styles.childIconContainer,
-                        { backgroundColor: 'rgba(255,255,255,0.15)' }
-                      ]}>
-                        <Text style={[
-                          styles.childIcon,
-                          { color: '#FFFFFF' }
-                        ]}>
-                          {emoji}
-                        </Text>
-                      </View>
-                      
-                      <View style={styles.childTextContainer}>
-                        <Text style={styles.childNameInactive}>
-                          {child.name}
-                        </Text>
-                        <Text style={styles.childTagInactive}>
-                          {child.tag}
-                        </Text>
-                      </View>
-                    </View>
-                  )}
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
+        {/* Горизонтальный выбор детей */}
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          {childrenList.map((child, index) => {
+            const isActive = index === activeChildIndex;
+            return (
+              <TouchableOpacity
+                key={child.id}
+                onPress={() => onChangeChild(index)}
+                style={[styles.miniTab, isActive && styles.miniTabActive]}
+              >
+                <View style={[styles.letterCircle, isActive && styles.letterCircleActive]}>
+                  <Text style={[styles.letter, { color: isActive ? '#6366F1' : '#FFF' }]}>
+                    {child.name.charAt(0).toUpperCase()}
+                  </Text>
+                </View>
+                <Text style={[styles.tabName, { color: isActive ? '#6366F1' : '#FFF' }]}>
+                  {child.name.toUpperCase()}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
     </View>
   );
 };
 
-export default AppHeader;
-
 const styles = StyleSheet.create({
   container: {
-    position: 'relative',
-    paddingTop: Platform.OS === 'ios' ? 50 : 30,
-    paddingBottom: 24,
-    borderBottomLeftRadius: 28,
-    borderBottomRightRadius: 28,
+    paddingTop: 50, // Увеличил отступ сверху для SafeArea
+    paddingBottom: 12,
+    borderBottomLeftRadius: 24,
+    borderBottomRightRadius: 24,
     overflow: 'hidden',
   },
-  backgroundGradient: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  blurView: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-  },
-  content: {
-    position: 'relative',
-  },
+  backgroundGradient: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  content: { zIndex: 1 },
   topBar: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    marginBottom: 24,
+    paddingHorizontal: 20,
+    marginBottom: 16,
   },
-  logoContainer: {
+  brandGroup: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  logoBox: {
+    width: 28, height: 28, borderRadius: 6,
+    backgroundColor: '#FFF', justifyContent: 'center', alignItems: 'center',
+  },
+  logoText: { fontSize: 12, fontWeight: '900', color: '#6366F1' },
+  activeChildName: { fontSize: 15, fontWeight: '900', color: '#FFF', letterSpacing: 0.3 },
+  activeChildTag: { fontSize: 10, fontWeight: '800' },
+  brandSubtitle: { fontSize: 8, color: 'rgba(255,255,255,0.6)', fontWeight: '700', marginTop: -2 },
+  scrollContent: { paddingHorizontal: 20, gap: 8, paddingBottom: 4 },
+  miniTab: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    paddingRight: 10, paddingLeft: 4, paddingVertical: 4,
+    borderRadius: 20, borderWidth: 1, borderColor: 'rgba(255,255,255,0.05)',
+  },
+  miniTabActive: { backgroundColor: '#FFF', borderColor: '#FFF' },
+  letterCircle: {
+    width: 22, height: 22, borderRadius: 11,
+    backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center',
+  },
+  letterCircleActive: { backgroundColor: 'rgba(99, 102, 241, 0.1)' },
+  letter: { fontSize: 11, fontWeight: '900' },
+  tabName: { fontSize: 10, fontWeight: '800', marginLeft: 6 },
+  rightButtons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
-  logoCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderWidth: 2,
-    borderColor: 'rgba(255,255,255,0.3)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoText: {
-    fontSize: 18,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
-  logoTextContainer: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 2,
-  },
-  logoMain: {
-    fontSize: 24,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.5,
-  },
-  logoAccent: {
-    fontSize: 24,
-    fontWeight: '900',
-    color: '#FFFFFF',
-    opacity: 0.9,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 20,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    gap: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-  },
-  logoutIcon: {
-    opacity: 0.9,
-  },
-  logoutText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#FFFFFF',
-    marginTop: 1,
-  },
-  childrenSection: {
-    paddingHorizontal: 8,
-  },
-  sectionTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: 'rgba(255,255,255,0.8)',
-    marginBottom: 12,
-    paddingHorizontal: 16,
-    letterSpacing: 0.5,
-    textTransform: 'uppercase',
-  },
-  childrenScrollContent: {
-    paddingHorizontal: 16,
-    paddingBottom: 4,
-  },
-  childCardWrapper: {
-    marginRight: 10,
-  },
-  childCardWrapperActive: {
+  parentBadgeBtn: {
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
+    shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.2,
-    shadowRadius: 16,
-    elevation: 10,
+    shadowRadius: 4,
+    elevation: 3,
   },
-  childCardActive: {
-    borderRadius: 20,
-    padding: 2,
-    minWidth: 150,
+  parentBtnGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 12,
+    gap: 4,
+    maxWidth: 120, // Ограничение ширины для длинных имен
   },
-  childCardInactive: {
-    borderRadius: 18,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
+  parentBtnText: {
+    color: '#000',
+    fontSize: 9,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  logoutBtnSmall: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
     backgroundColor: 'rgba(255,255,255,0.1)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.15)',
-    minWidth: 140,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  childCardContent: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  childIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
-  },
-  childIcon: {
-    fontSize: 24,
-  },
-  childTextContainer: {
-    flex: 1,
-  },
-  childName: {
-    fontSize: 16,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 2,
-  },
-  childNameInactive: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: '#FFFFFF',
-    marginBottom: 2,
-  },
-  childTag: {
-    fontSize: 12,
-    color: '#64748B',
-    fontWeight: '600',
-  },
-  childTagInactive: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.7)',
-    fontWeight: '600',
-  },
-  activeIndicator: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginLeft: 8,
   },
 });
+
+export default AppHeader;

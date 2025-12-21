@@ -170,43 +170,16 @@ const OnboardingScreen: React.FC = () => {
   }, [birthDay, birthMonth, birthYear]);
 
   // форматирование номера телефона
-  const formatPhoneNumber = (text: string) => {
-    // Убираем все нецифровые символы кроме плюса в начале
-    let clean = text.replace(/[^\d+]/g, '');
-    
-    // Если номер начинается не с +7, добавляем +7
-    if (!clean.startsWith('+7') && !clean.startsWith('7')) {
-      clean = '+7' + clean.replace(/^\+?/, '');
-    }
-    
-    // Ограничиваем длину (код страны + 10 цифр + знак +)
-    if (clean.length > 12) {
-      clean = clean.substring(0, 12);
-    }
-    
-    // Форматируем с пробелами
-    if (clean.length > 2) {
-      const code = clean.substring(0, 2); // +7
-      const numbers = clean.substring(2).replace(/\D/g, '');
-      
-      let formatted = code;
-      if (numbers.length > 0) {
-        formatted += ' ' + numbers.substring(0, 3);
-      }
-      if (numbers.length > 3) {
-        formatted += ' ' + numbers.substring(3, 6);
-      }
-      if (numbers.length > 6) {
-        formatted += ' ' + numbers.substring(6, 8);
-      }
-      if (numbers.length > 8) {
-        formatted += ' ' + numbers.substring(8, 10);
-      }
-      
-      return formatted;
-    }
-    
-    return clean;
+const formatPhoneNumber = (text: string) => {
+        let digits = text.replace(/\D/g, '');
+        if (digits.startsWith('7')) digits = digits.substring(1);
+        digits = digits.substring(0, 10);
+        let formatted = '+7 ';
+        if (digits.length > 0) formatted += digits.substring(0, 3);
+        if (digits.length > 3) formatted += ' ' + digits.substring(3, 6);
+        if (digits.length > 6) formatted += ' ' + digits.substring(6, 8);
+        if (digits.length > 8) formatted += ' ' + digits.substring(8, 10);
+        return formatted
   };
 
   // переход в приложение и сохранение данных
@@ -975,18 +948,19 @@ const OnboardingScreen: React.FC = () => {
             <Text style={styles.inputLabel}>Номер телефона</Text>
             <View style={styles.inputContainer}>
               <Text style={styles.inputIcon}>📱</Text>
-              <TextInput
-                style={[styles.input, styles.inputWithIcon]}
-                placeholder="+7 777 123 45 67"
-                placeholderTextColor="#94A3B8"
-                value={parentPhone}
-                keyboardType="phone-pad"
-                maxLength={16} // +7 777 123 45 67
-                onChangeText={(text) => {
+               <TextInput 
+               style={[styles.input, styles.inputWithIcon]}
+                          keyboardType="phone-pad" 
+                          placeholder="+7 000 000 00 00" // Добавим плейсхолдер и сюда
+                          placeholderTextColor="#94A3B8"
+                          value={parentPhone} 
+                          maxLength={16}
+                                          onChangeText={(text) => {
                   const formatted = formatPhoneNumber(text);
                   setParentPhone(formatted);
                 }}
-              />
+                      />
+
             </View>
             <View style={styles.phoneHintContainer}>
               {parentPhone.length > 0 && !isPhoneValid && (

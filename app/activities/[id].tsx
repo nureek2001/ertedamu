@@ -1,43 +1,84 @@
-// app/activities/[id].tsx
+import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ResizeMode, Video } from 'expo-av'; // Импорт плеера
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { getChildProgress, markActivityAsCompleted } from '../../utils/storage';
 import {
-    CATEGORY_META,
-    findActivityById
+  CATEGORY_META,
+  findActivityById
 } from './data';
 
 const ActivityDetailsScreen: React.FC = () => {
   const params = useLocalSearchParams<{ id?: string }>();
   const rawId = Array.isArray(params.id) ? params.id[0] : params.id;
+  
+  const videoRef = useRef<Video>(null); // Реф для управления плеером
+  const [isVideoLoading, setIsVideoLoading] = useState(true);
+
   const activity = useMemo(
     () => findActivityById(rawId ?? ''),
     [rawId]
   );
 
-  const [difficultyMark, setDifficultyMark] = useState<
-    'easy' | 'ok' | 'hard' | null
-  >(null);
+  const [difficultyMark, setDifficultyMark] = useState<'easy' | 'ok' | 'hard' | null>(null);
+  const [targetChildId, setTargetChildId] = useState<string>('main');
+
+  useEffect(() => {
+    if (!activity) return;
+    const loadInitialState = async () => {
+      try {
+        const activeIdxStr = await AsyncStorage.getItem('activeChildIndex');
+        const extraStr = await AsyncStorage.getItem('extraChildren');
+        let resolvedId = 'main';
+        if (activeIdxStr && activeIdxStr !== '0') {
+             const idx = parseInt(activeIdxStr);
+             if (extraStr) {
+                 const extras = JSON.parse(extraStr);
+                 if (extras[idx - 1]) resolvedId = extras[idx - 1].id;
+             }
+        }
+        setTargetChildId(resolvedId);
+        const progress = await getChildProgress(resolvedId);
+        const existingEntry = progress.find(p => p.activityId === activity.id);
+        if (existingEntry) {
+          setDifficultyMark(existingEntry.difficulty);
+        }
+      } catch (e) {
+        console.warn('Error loading activity state:', e);
+      }
+    };
+    loadInitialState();
+  }, [activity]);
+
+  const handleComplete = async (difficulty: 'easy' | 'ok' | 'hard') => {
+    if (!activity) return;
+    setDifficultyMark(difficulty);
+    try {
+        await markActivityAsCompleted(targetChildId, activity.id, difficulty);
+        setTimeout(() => { router.back(); }, 300);
+    } catch (e) { console.warn(e); }
+  };
 
   if (!activity) {
     return (
       <SafeAreaView style={styles.screen}>
         <View style={styles.notFoundContainer}>
+          <Ionicons name="alert-circle-outline" size={64} color="#CBD5E1" />
           <Text style={styles.notFoundTitle}>Активность не найдена</Text>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.notFoundButton}
-          >
-            <Text style={styles.notFoundButtonText}>Назад</Text>
+          <TouchableOpacity onPress={() => router.back()} style={styles.notFoundButton}>
+            <Text style={styles.notFoundButtonText}>Вернуться назад</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -52,9 +93,11 @@ const ActivityDetailsScreen: React.FC = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* Верхний блок */}
+        {/* === ВЕРХНИЙ БЛОК (HERO) === */}
         <LinearGradient
           colors={meta.gradient}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={styles.hero}
         >
           <View style={styles.heroTopRow}>
@@ -63,11 +106,13 @@ const ActivityDetailsScreen: React.FC = () => {
               activeOpacity={0.8}
               style={styles.backButton}
             >
-              <Text style={styles.backText}>←</Text>
+              <Ionicons name="arrow-back" size={24} color="#FFFFFF" />
             </TouchableOpacity>
 
             <View style={styles.heroMetaRight}>
-              <Text style={styles.heroCategory}>{meta.label}</Text>
+              <View style={styles.categoryBadge}>
+                 <Text style={styles.heroCategory}>{meta.label}</Text>
+              </View>
               <Text style={styles.heroTime}>
                 ⏱ {activity.minutes} мин · {activity.difficulty}
               </Text>
@@ -75,35 +120,57 @@ const ActivityDetailsScreen: React.FC = () => {
           </View>
 
           <View style={styles.heroTitleRow}>
-            <Text style={styles.heroEmoji}>{meta.emoji}</Text>
+            <View style={styles.emojiContainer}>
+                <Text style={styles.heroEmoji}>{meta.emoji}</Text>
+            </View>
             <Text style={styles.heroTitle}>{activity.title}</Text>
           </View>
 
           <Text style={styles.heroSubtitle}>{activity.subtitle}</Text>
         </LinearGradient>
 
+        {/* === ВИДЕО ПЛЕЕР === */}
+        <View style={styles.videoCard}>
+          {isVideoLoading && (
+            <View style={styles.videoLoader}>
+              <ActivityIndicator size="large" color={meta.gradient[0]} />
+            </View>
+          )}
+          <Video
+            ref={videoRef}
+            style={styles.video}
+            // Здесь используйте activity.videoUrl, когда добавите его в базу данных
+            source={{ uri: activity.videoUrl || '' }}
+            useNativeControls
+            resizeMode={ResizeMode.COVER}
+            isLooping
+            onLoad={() => setIsVideoLoading(false)}
+          />
+        </View>
+
         {/* Оценка сложности */}
         <View style={styles.segmentCard}>
-          <Text style={styles.segmentTitle}>Как зашла активность?</Text>
+          <Text style={styles.segmentTitle}>
+             {difficultyMark ? 'Задание выполнено!' : 'Как прошло занятие?'}
+          </Text>
           <View style={styles.segmentRow}>
             {[
-              { key: 'easy' as const, label: 'Слишком легко' },
-              { key: 'ok' as const, label: 'В самый раз' },
-              { key: 'hard' as const, label: 'Пока сложно' },
+              { key: 'easy' as const, label: 'Легко', emoji: '😎' },
+              { key: 'ok' as const, label: 'Норм', emoji: '👍' },
+              { key: 'hard' as const, label: 'Сложно', emoji: '🤯' },
             ].map((opt) => {
               const selected = difficultyMark === opt.key;
               return (
                 <TouchableOpacity
                   key={opt.key}
-                  onPress={() =>
-                    setDifficultyMark(selected ? null : opt.key)
-                  }
+                  onPress={() => handleComplete(opt.key)}
                   activeOpacity={0.85}
                   style={[
                     styles.segmentChip,
                     selected && styles.segmentChipActive,
                   ]}
                 >
+                  <Text style={[styles.segmentEmoji, selected && {opacity: 1}]}>{opt.emoji}</Text>
                   <Text
                     style={[
                       styles.segmentChipText,
@@ -118,293 +185,104 @@ const ActivityDetailsScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* Цель */}
+        {/* Остальные блоки контента (Цель, Материалы, Ход занятия...) */}
+        {/* ... (ваш оригинальный код блоков) ... */}
+        
         <View style={styles.block}>
-          <Text style={styles.blockTitle}>Цель</Text>
+          <View style={styles.blockHeaderRow}>
+            <Ionicons name="flag-outline" size={20} color={meta.gradient[0]} />
+            <Text style={styles.blockTitle}>Цель</Text>
+          </View>
           <Text style={styles.blockText}>{activity.objective}</Text>
         </View>
 
-        {/* Материалы */}
         <View style={styles.block}>
-          <Text style={styles.blockTitle}>Что подготовить</Text>
-          {activity.materials.map((item, index) => (
-            <View key={index.toString()} style={styles.bulletRow}>
-              <View style={styles.bulletDot} />
-              <Text style={styles.bulletText}>{item}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Ход занятия */}
-        <View style={styles.block}>
-          <Text style={styles.blockTitle}>Ход занятия</Text>
-          {activity.steps.map((step, index) => (
-            <View key={index.toString()} style={styles.stepRow}>
-              <View style={styles.stepBadge}>
-                <Text style={styles.stepBadgeText}>{index + 1}</Text>
-              </View>
-              <Text style={styles.stepText}>{step}</Text>
-            </View>
-          ))}
-        </View>
-
-        {/* Навыки */}
-        <View style={styles.block}>
-          <Text style={styles.blockTitle}>Что развивает</Text>
-          <View style={styles.skillsRow}>
-            {activity.skills.map((skill) => (
-              <View key={skill} style={styles.skillChip}>
-                <Text style={styles.skillChipText}>{skill}</Text>
-              </View>
+          <View style={styles.blockHeaderRow}>
+             <Ionicons name="footsteps-outline" size={20} color={meta.gradient[0]} />
+             <Text style={styles.blockTitle}>Ход занятия</Text>
+          </View>
+          <View style={styles.stepsContainer}>
+            {activity.steps.map((step, index) => (
+                <View key={index.toString()} style={styles.stepRow}>
+                <View style={styles.stepBadge}>
+                    <Text style={[styles.stepBadgeText, { color: meta.gradient[1] }]}>{index + 1}</Text>
+                </View>
+                <Text style={styles.stepText}>{step}</Text>
+                </View>
             ))}
           </View>
         </View>
 
-        {/* Связанное достижение */}
-        <View style={styles.milestoneCard}>
-          <Text style={styles.milestoneTitle}>Связанное достижение</Text>
-          <Text style={styles.milestoneText}>{activity.milestone}</Text>
-        </View>
-
-        <View style={{ height: 32 }} />
+        <View style={{ height: 40 }} />
       </ScrollView>
     </SafeAreaView>
   );
 };
 
-export default ActivityDetailsScreen;
-
+// ОБНОВЛЕННЫЕ СТИЛИ
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-  },
-  scrollContent: {
-    paddingBottom: 24,
-  },
-  hero: {
-    paddingTop: 18,
-    paddingHorizontal: 20,
-    paddingBottom: 20,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  heroTopRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  backButton: {
-    paddingVertical: 6,
-    paddingHorizontal: 8,
-    borderRadius: 999,
-    backgroundColor: 'rgba(15,23,42,0.2)',
-  },
-  backText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  heroMetaRight: {
-    alignItems: 'flex-end',
-  },
-  heroCategory: {
-    color: '#EFF6FF',
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  heroTime: {
-    color: '#E0F2FE',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  heroTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 14,
-  },
-  heroEmoji: {
-    fontSize: 30,
-    marginRight: 10,
-  },
-  heroTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    flex: 1,
-  },
-  heroSubtitle: {
-    marginTop: 6,
-    fontSize: 13,
-    color: 'rgba(255,255,255,0.9)',
-  },
+  // ... (ваши оригинальные стили) ...
+  screen: { flex: 1, backgroundColor: '#FFFFFF' },
+  scrollContent: { paddingBottom: 24 },
+  hero: { paddingTop: 12, paddingHorizontal: 24, paddingBottom: 48, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
+  heroTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 },
+  backButton: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center' },
+  heroMetaRight: { alignItems: 'flex-end' },
+  categoryBadge: { backgroundColor: 'rgba(255,255,255,0.2)', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginBottom: 4 },
+  heroCategory: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  heroTime: { color: 'rgba(255,255,255,0.9)', fontSize: 12, fontWeight: '600' },
+  heroTitleRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
+  emojiContainer: { width: 50, height: 50, borderRadius: 16, backgroundColor: 'rgba(255,255,255,0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 16 },
+  heroEmoji: { fontSize: 28 },
+  heroTitle: { flex: 1, fontSize: 24, fontWeight: '900', color: '#FFFFFF', lineHeight: 30, paddingTop: 4 },
+  heroSubtitle: { fontSize: 15, color: 'rgba(255,255,255,0.85)', lineHeight: 22, marginTop: 4 },
 
-  segmentCard: {
-    marginTop: 16,
+  // НОВЫЕ СТИЛИ ДЛЯ ВИДЕО
+  videoCard: {
+    marginTop: -28, // Наплыв на Hero блок
     marginHorizontal: 20,
+    height: 220,
+    backgroundColor: '#000',
+    borderRadius: 24,
+    overflow: 'hidden',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 15,
+  },
+  video: {
+    flex: 1,
+  },
+  videoLoader: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: '#F8FAFC',
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  segmentTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: '#0F172A',
-    marginBottom: 10,
-  },
-  segmentRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  segmentChip: {
-    flex: 1,
-    marginRight: 6,
-    borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#E2E8F0',
-  },
-  segmentChipActive: {
-    backgroundColor: '#0F172A',
-    borderColor: '#0F172A',
-  },
-  segmentChipText: {
-    fontSize: 12,
-    textAlign: 'center',
-    color: '#475569',
-    fontWeight: '600',
-  },
-  segmentChipTextActive: {
-    color: '#FFFFFF',
-  },
-
-  block: {
-    marginTop: 16,
-    marginHorizontal: 20,
-  },
-  blockTitle: {
-    fontSize: 14,
-    fontWeight: '800',
-    color: '#0F172A',
-    marginBottom: 6,
-  },
-  blockText: {
-    fontSize: 13,
-    color: '#475569',
-    lineHeight: 18,
-  },
-
-  bulletRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginTop: 4,
-  },
-  bulletDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: '#0F172A',
-    marginTop: 6,
-    marginRight: 8,
-  },
-  bulletText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#475569',
-    lineHeight: 18,
-  },
-
-  stepRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginTop: 6,
-  },
-  stepBadge: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
-    backgroundColor: '#EEF2FF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
-  },
-  stepBadgeText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#4338CA',
-  },
-  stepText: {
-    flex: 1,
-    fontSize: 13,
-    color: '#1F2933',
-    lineHeight: 18,
+    zIndex: 1,
   },
 
-  skillsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    marginTop: 4,
-  },
-  skillChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: '#E0F2FE',
-    marginRight: 6,
-    marginTop: 6,
-  },
-  skillChipText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: '#0F172A',
-  },
-
-  milestoneCard: {
-    marginTop: 18,
-    marginHorizontal: 20,
-    backgroundColor: '#DCFCE7',
-    borderRadius: 18,
-    padding: 14,
-    borderWidth: 1,
-    borderColor: '#BBF7D0',
-  },
-  milestoneTitle: {
-    fontSize: 13,
-    fontWeight: '800',
-    color: '#166534',
-    marginBottom: 6,
-  },
-  milestoneText: {
-    fontSize: 13,
-    color: '#14532D',
-    lineHeight: 18,
-  },
-
-  notFoundContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 24,
-  },
-  notFoundTitle: {
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 12,
-    color: '#0F172A',
-  },
-  notFoundButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 999,
-    backgroundColor: '#0F172A',
-  },
-  notFoundButtonText: {
-    color: '#FFFFFF',
-    fontWeight: '700',
-  },
+  segmentCard: { marginTop: 24, marginHorizontal: 24, backgroundColor: '#FFFFFF', borderRadius: 20, padding: 16, shadowColor: '#64748B', shadowOpacity: 0.1, shadowRadius: 24, elevation: 8, marginBottom: 24 },
+  segmentTitle: { fontSize: 14, fontWeight: '700', color: '#0F172A', marginBottom: 12, textAlign: 'center' },
+  segmentRow: { flexDirection: 'row', gap: 8 },
+  segmentChip: { flex: 1, borderRadius: 12, paddingVertical: 10, backgroundColor: '#F8FAFC', borderWidth: 1, borderColor: '#E2E8F0', alignItems: 'center', justifyContent: 'center' },
+  segmentChipActive: { backgroundColor: '#0F172A', borderColor: '#0F172A' },
+  segmentEmoji: { fontSize: 18, marginBottom: 4, opacity: 0.5 },
+  segmentChipText: { fontSize: 12, color: '#64748B', fontWeight: '700' },
+  segmentChipTextActive: { color: '#FFFFFF' },
+  block: { marginTop: 24, paddingHorizontal: 24 },
+  blockHeaderRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 12, gap: 8 },
+  blockTitle: { fontSize: 18, fontWeight: '800', color: '#0F172A' },
+  blockText: { fontSize: 15, color: '#334155', lineHeight: 24 },
+  stepsContainer: { gap: 16 },
+  stepRow: { flexDirection: 'row', alignItems: 'flex-start' },
+  stepBadge: { width: 28, height: 28, borderRadius: 14, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginRight: 12, marginTop: -2 },
+  stepBadgeText: { fontSize: 14, fontWeight: '800' },
+  stepText: { flex: 1, fontSize: 15, color: '#1E293B', lineHeight: 24 },
+  notFoundContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 32 },
+  notFoundTitle: { fontSize: 18, fontWeight: '700', marginVertical: 16, color: '#0F172A' },
+  notFoundButton: { paddingHorizontal: 24, paddingVertical: 12, borderRadius: 12, backgroundColor: '#0F172A' },
+  notFoundButtonText: { color: '#FFFFFF', fontWeight: '700', fontSize: 15 },
 });
+
+export default ActivityDetailsScreen;
