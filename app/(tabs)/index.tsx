@@ -57,7 +57,6 @@ const PHOTO_CHALLENGE = {
 
 // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 
-// Считает общее кол-во месяцев
 const calculateAgeInMonths = (mStr?: string | null, yStr?: string | null): number => {
     const m = mStr ? parseInt(mStr, 10) : 0;
     const y = yStr ? parseInt(yStr, 10) : 0;
@@ -67,7 +66,6 @@ const calculateAgeInMonths = (mStr?: string | null, yStr?: string | null): numbe
     return age < 0 ? 0 : age;
 };
 
-// Превращает число месяцев в красивую строку
 const formatAgeLabel = (months: number): string => {
     if (months <= 0) return 'Малыш';
     if (months < 12) return `${months} мес.`;
@@ -103,14 +101,30 @@ const HomeScreen: React.FC = () => {
 
   const [selectedMood, setSelectedMood] = useState<string | null>(null);
   const [routineState, setRoutineState] = useState<Record<string, boolean>>({});
- const handleLogout = async () => {
-    router.replace('/login');
-  };
+  
   const [dailyActivity, setDailyActivity] = useState<any>(null);
   const [isDailyDone, setIsDailyDone] = useState(false);
 
-  const toggleRoutine = (id: string) => {
-      setRoutineState(prev => ({...prev, [id]: !prev[id]}));
+  const handleLogout = async () => {
+    router.replace('/login');
+  };
+
+  const getStorageKey = (childId: string, type: 'mood' | 'routine') => {
+    const today = new Date().toISOString().split('T')[0];
+    return `daily_${childId}_${today}_${type}`;
+  };
+
+  const toggleRoutine = async (id: string) => {
+      const childId = childrenList[activeChildIndex]?.id || 'main';
+      const newState = {...routineState, [id]: !routineState[id]};
+      setRoutineState(newState);
+      await AsyncStorage.setItem(getStorageKey(childId, 'routine'), JSON.stringify(newState));
+  };
+
+  const handleMoodSelect = async (moodId: string) => {
+    const childId = childrenList[activeChildIndex]?.id || 'main';
+    setSelectedMood(moodId);
+    await AsyncStorage.setItem(getStorageKey(childId, 'mood'), moodId);
   };
 
   const loadData = useCallback(async () => {
@@ -129,54 +143,64 @@ const HomeScreen: React.FC = () => {
           setActiveChildIndex(activeIdx);
       }
 
-      // 1. Считаем возраст основного ребенка
-      const mainMonths = calculateAgeInMonths(map.childBirthMonth, map.childBirthYear);
-      const mainGroup = getAgeGroupFromMonths(mainMonths);
-const mainList: ChildChip[] = [{
-  id: 'main',
-  name: map.childName || 'Ребёнок',
-  tag: formatAgeLabel(mainMonths),
-  ageGroup: mainGroup,
-  color: '#3B82F6', // Синий для основного
-}];
+      // Создаем массив для хранения полных данных (для расчетов)
+      const fullChildrenData: any[] = [];
 
-      // 2. Добавляем остальных детей
+      // 1. Добавляем основного ребенка
+      const mainMonths = calculateAgeInMonths(map.childBirthMonth, map.childBirthYear);
+      fullChildrenData.push({
+        id: 'main',
+        name: map.childName || 'Ребёнок',
+        tag: formatAgeLabel(mainMonths),
+        ageGroup: getAgeGroupFromMonths(mainMonths),
+        color: '#3B82F6',
+        birthMonth: map.childBirthMonth,
+        birthYear: map.childBirthYear,
+      });
+
+      // 2. Добавляем экстра-детей
       if (map.extraChildren) {
          try {
             const extra = JSON.parse(map.extraChildren);
             if(Array.isArray(extra)) {
                 extra.forEach(c => {
                     const exMonths = calculateAgeInMonths(c.birthMonth, c.birthYear);
-                    mainList.push({
+                    fullChildrenData.push({
                         ...c, 
                         tag: formatAgeLabel(exMonths),
                         color: '#10B981', 
                         emoji: '🧒', 
                         ageGroup: getAgeGroupFromMonths(exMonths),
+                        birthMonth: c.birthMonth,
+                        birthYear: c.birthYear,
                     });
                 });
             }
          } catch(e) {}
       }
-      setChildrenList(mainList);
 
-      const currentChildId = mainList[activeIdx]?.id || 'main';
+      // Фильтруем данные для ChildrenList (убираем birthMonth/birthYear, чтобы TS не ругался)
+      const filteredList: ChildChip[] = fullChildrenData.map(({ birthMonth, birthYear, ...rest }) => rest as ChildChip);
+      setChildrenList(filteredList);
+
+      const currentChildFull = fullChildrenData[activeIdx] || fullChildrenData[0];
+      const currentChildId = currentChildFull.id;
+
+      // Загружаем состояние чек-листа
+      const [savedMood, savedRoutine] = await AsyncStorage.multiGet([
+        getStorageKey(currentChildId, 'mood'),
+        getStorageKey(currentChildId, 'routine')
+      ]);
+
+      setSelectedMood(savedMood[1]);
+      setRoutineState(savedRoutine[1] ? JSON.parse(savedRoutine[1]) : {});
       
-      // Определяем возраст текущего активного ребенка для фильтрации активностей
-      // Ищем его в данных
-      let currentAgeMonths = mainMonths;
-      if (activeIdx > 0 && map.extraChildren) {
-          const extra = JSON.parse(map.extraChildren);
-          const child = extra[activeIdx - 1];
-          if (child) currentAgeMonths = calculateAgeInMonths(child.birthMonth, child.birthYear);
-      }
+      let currentAgeMonths = calculateAgeInMonths(currentChildFull.birthMonth, currentChildFull.birthYear);
 
-      // Загружаем статистику
       const actProgress = await getChildProgress(currentChildId);
       const milProgress = await getMilestonesProgress(currentChildId);
       setStats({ activities: actProgress.length, milestones: milProgress.length });
 
-      // --- ЛОГИКА АКТИВНОСТИ ДНЯ ---
       const suitableActivities = ACTIVITY_LIBRARY.filter(a => (a as any).minMonths <= currentAgeMonths);
       
       if (suitableActivities.length > 0) {
@@ -188,8 +212,6 @@ const mainList: ChildChip[] = [{
           setDailyActivity(selected);
           const isDone = actProgress.some(a => a.activityId === (selected as any).id);
           setIsDailyDone(isDone);
-      } else {
-          setDailyActivity(null);
       }
 
     } catch (e) {
@@ -200,26 +222,16 @@ const mainList: ChildChip[] = [{
     }
   }, [activeChildIndex]);
 
-useFocusEffect(
-  useCallback(() => {
-    const syncChild = async () => {
-      const savedIndex = await AsyncStorage.getItem('activeChildIndex');
-      if (savedIndex !== null) {
-        setActiveChildIndex(parseInt(savedIndex, 10));
-      }
-      loadData(); // Загружаем данные уже с обновленным индексом
-    };
-    syncChild();
-  }, [loadData])
-);
+  useFocusEffect(
+    useCallback(() => {
+      loadData();
+    }, [loadData])
+  );
 
-// Функция смены ребенка должна сохранять индекс глобально
-const handleChildChange = async (index: number) => {
-    setActiveChildIndex(index);
-    await AsyncStorage.setItem('activeChildIndex', index.toString());
-    // loadData() вызовется автоматически из-за зависимости в useFocusEffect или можно вызвать вручную
-};
-
+  const handleChildChange = async (index: number) => {
+      setActiveChildIndex(index);
+      await AsyncStorage.setItem('activeChildIndex', index.toString());
+  };
 
   const openActivity = (id: string) => {
       router.push(`/activities/${id}`);
@@ -291,7 +303,7 @@ const handleChildChange = async (index: number) => {
                                 styles.moodButton, 
                                 isSelected && { backgroundColor: mood.color, borderColor: mood.color }
                             ]}
-                            onPress={() => setSelectedMood(mood.id)}
+                            onPress={() => handleMoodSelect(mood.id)}
                             activeOpacity={0.7}
                         >
                             <Text style={styles.moodEmoji}>{mood.emoji}</Text>
@@ -315,12 +327,12 @@ const handleChildChange = async (index: number) => {
                     <LinearGradient colors={activityGradient} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={styles.featuredCard}>
                         <View style={styles.featuredHeader}>
                             <View style={[styles.featuredTag, isDailyDone && {backgroundColor: 'rgba(255,255,255,0.3)'}]}>
-<Text style={styles.featuredTagText}>
-    {isDailyDone 
-      ? 'ВЫПОЛНЕНО' 
-      : (dailyActivity?.category ? CATEGORY_META[dailyActivity.category as keyof typeof CATEGORY_META]?.label : 'Активность')
-    }
-</Text>
+                                <Text style={styles.featuredTagText}>
+                                    {isDailyDone 
+                                      ? 'ВЫПОЛНЕНО' 
+                                      : (dailyActivity?.category ? CATEGORY_META[dailyActivity.category as keyof typeof CATEGORY_META]?.label : 'Активность')
+                                    }
+                                </Text>
                             </View>
                             <View style={styles.featuredTime}>
                                 <Ionicons name="time-outline" size={16} color="#FFF" />
@@ -365,6 +377,7 @@ const handleChildChange = async (index: number) => {
             </View>
         </View>
 
+        {/* ... Слово дня, Мамины минуты и Фото-челлендж остаются без изменений ... */}
         <View style={styles.sectionContainer}>
              <Text style={styles.sectionTitle}>Слово дня</Text>
              <View style={styles.wordCard}>

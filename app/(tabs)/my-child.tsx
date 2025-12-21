@@ -23,21 +23,66 @@ import { MILESTONE_LIBRARY, MILESTONE_META, MilestoneCategory } from '../milesto
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// --- КОНСТАНТЫ И ДАННЫЕ ---
+// --- ПОЛНАЯ БАЗА ДАННЫХ ВОПРОСОВ И РЕКОМЕНДАЦИЙ (ДЛЯ ОТОБРАЖЕНИЯ В ПРОФИЛЕ) ---
+const EARLY_QUESTIONS_DB: Record<number, any[]> = {
+    1: [
+        { id: 1, text: "Реагирует ли ребёнок на громкие звуки?", rec: "Стимулируйте слух: используйте погремушки с разным звуком. Если реакции нет совсем — проконсультируйтесь с лором." },
+        { id: 2, text: "Смотрит ли ребёнок на лицо взрослого близко (20–30 см)?", rec: "Чаще устанавливайте визуальный контакт во время кормления и бодрствования." },
+        { id: 3, text: "Удерживает ли взгляд на одном объекте хотя бы 2–3 секунды?", rec: "Плавно перемещайте яркую игрушку перед глазами ребенка, развивая фокусировку." },
+        { id: 4, text: "Поднимает ли ребёнок голову на несколько секунд, лёжа на животе?", rec: "Выкладывайте на живот (tummy time) на 1-2 минуты несколько раз в день." },
+    ],
+    3: [
+        { id: 1, text: "Реагирует ли ребёнок на знакомые голоса?", rec: "Чаще разговаривайте, пойте, называйте ребенка по имени из разных частей комнаты." },
+        { id: 2, text: "Издаёт ли ребёнок короткие звуки (гулит)?", rec: "Повторяйте звуки за ребенком, играйте в «звуковые игры», стимулируя диалог." },
+        { id: 3, text: "Поднимает ли голову и грудь, лёжа на животе?", rec: "Tummy time 3 раза в день по 1–2 минуты, можно использовать валик под грудь." },
+        { id: 4, text: "Следит ли за предметами (вертикально или горизонтально)?", rec: "Показывайте яркие игрушки, плавно перемещая их перед глазами." },
+        { id: 5, text: "Улыбается ли ребёнок в ответ на улыбку взрослого?", rec: "Больше эмоционального взаимодействия — улыбки, мимика, ласковый разговор." },
+    ],
+    5: [
+        { id: 1, text: "Реагирует ли ребёнок на голос взрослого?", rec: "Разговаривайте с ребёнком, пойте, используйте короткие и понятные фразы." },
+        { id: 2, text: "Издаёт ли ребёнок различные звуки, гулит активно?", rec: "Повторяйте звуки ребёнка, стимулируйте «ответное» звуковое взаимодействие." },
+        { id: 3, text: "Поднимает ли голову и грудь на несколько секунд на животе?", rec: "Стимулируйте движения руками и ногами, выкладывая игрушки чуть впереди." },
+        { id: 4, text: "Удерживает ли голову уверенно в положении сидя с поддержкой?", rec: "Поддерживайте в вертикальном положении, мягко тренируя мышцы шеи и спины." },
+        { id: 5, text: "Держит ли руки раскрытыми, наблюдает за ними?", rec: "Давайте игрушки разной формы, стимулируйте хватательные движения." },
+        { id: 6, text: "Пытается ли ребёнок тянуться к предметам?", rec: "Поощряйте тянуться к ярким игрушкам, меняя их положение вокруг ребенка." },
+        { id: 7, text: "Улыбается ли ребёнок в ответ на родителей?", rec: "Больше эмоционального контакта, держите на руках, общайтесь лицом к лицу." },
+    ],
+    7: [
+        { id: 1, text: "Реагирует ли ребёнок на имя?", rec: "Часто зовите ребёнка по имени в разных ситуациях, используйте ласковый тон." },
+        { id: 2, text: "Издаёт ли ребёнок слоги (ба, ма, да)?", rec: "Стимулируйте гуление и лепет, четко проговаривая простые слоги." },
+        { id: 3, text: "Может ли ребёнок переворачиваться со спины на живот и обратно?", rec: "Стимулируйте перевороты, выкладывая любимые игрушки по бокам от ребенка." },
+        { id: 4, text: "Удерживает ли ребёнок устойчиво сидячее положение с поддержкой?", rec: "Поддерживайте за грудь или под спину, стимулируя навык баланса." },
+        { id: 5, text: "Держит ли игрушку и перекладывает её из руки в руку?", rec: "Давайте безопасные игрушки, которые удобно обхватить ладонью." },
+    ],
+    9: [
+        { id: 1, text: "Реагирует ли ребёнок на имя и простые команды (дай, иди)?", rec: "Повторяйте короткие слова и команды, подкрепляя их жестами." },
+        { id: 2, text: "Произносит ли ребёнок слоги активно и повторно?", rec: "Стимулируйте лепет, пойте песни с повторяющимися слогами." },
+        { id: 3, text: "Может ли ребёнок самостоятельно сидеть без поддержки?", rec: "Тренируйте баланс, выкладывая игрушки вокруг сидящего ребенка." },
+        { id: 4, text: "Ползает ли ребёнок на животе или на четвереньках?", rec: "Стимулируйте ползание, расставляя цели-игрушки на небольшом расстоянии." },
+        { id: 5, text: "Может ли ребёнок поднимать мелкие предметы пальцами?", rec: "Давайте безопасные предметы для практики точного захвата." },
+    ],
+    11: [
+        { id: 1, text: "Реагирует ли ребёнок на простые слова (дай, иди, нет)?", rec: "Используйте четкие команды, показывайте желаемое действие жестами." },
+        { id: 2, text: "Произносит ли ребёнок слоги с попыткой обозначить людей (ма-ма)?", rec: "Поощряйте называние предметов, играйте в «покажи, где...»." },
+        { id: 3, text: "Может ли ребёнок стоять с поддержкой или делать шаги?", rec: "Поддерживайте за руки, стимулируйте самостоятельное стояние у опоры." },
+        { id: 4, text: "Захватывает ли мелкие предметы «щипковым захватом»?", rec: "Стимулируйте точный захват, предлагая мелкие безопасные объекты." },
+    ],
+    13: [
+        { id: 1, text: "Произносит ли ребёнок первые слова или осмысленные слоги?", rec: "Называйте предметы, которые берет ребенок, стимулируйте повторение." },
+        { id: 2, text: "Может ли стоять самостоятельно или ходить вдоль опоры?", rec: "Побуждайте к самостоятельным шагам, расставляя мебель удобно для опоры." },
+        { id: 3, text: "Манипулирует ли предметами разных форм и размеров?", rec: "Давайте игрушки, которые можно вставлять друг в друга или открывать." },
+    ],
+    15: [
+        { id: 1, text: "Понимает ли ребёнок инструкции (не трогай, принеси)?", rec: "Чаще давайте простые поручения, хвалите за их правильное выполнение." },
+        { id: 2, text: "Произносит ли первые осмысленные слова для предметов/людей?", rec: "Стимулируйте говорение, читайте книги с крупными картинками." },
+        { id: 3, text: "Ходит ли самостоятельно без поддержки?", rec: "Поощряйте самостоятельную ходьбу, создавайте безопасные условия." },
+    ]
+};
 
 const MONTHLY_REMINDERS: Record<number, { title: string, items: string[] }> = {
     0: { title: "0 месяц", items: ["Осмотр неонатолога и педиатра", "Скрининг слуха, пульсоксиметрия, тест на гипотиреоз", "Вакцинации: BCG, HepB (0)"] },
     1: { title: "1 месяц", items: ["Визит к педиатру", "Осмотры: невролог, ортопед, хирург", "Контроль веса, рефлексов, тонуса"] },
-    2: { title: "2 месяца", items: ["Плановый приём у педиатра", "Вакцины: Pentaxim (1 доза), PCV13 (1), Rota (1)"] },
-    3: { title: "3 месяца", items: ["Осмотр у педиатра", "Контроль общего развития"] },
-    4: { title: "4 месяца", items: ["Визит к педиатру", "Оценка развития, переводов взгляда", "Вакцины: Pentaxim (2), PCV13 (2), Rota (2)"] },
-    5: { title: "5 месяцев", items: ["Плановый приём у педиатра", "Контроль моторики (перевороты)"] },
     6: { title: "6 месяцев", items: ["Визит к педиатру + невролог", "Осмотр офтальмолога", "Вакцины: Pentaxim (3), HepB (3), OPV (1)"] },
-    7: { title: "7 месяцев", items: ["Осмотр у педиатра", "Контроль навыков: сидение, реакция на имя"] },
-    8: { title: "8 месяцев", items: ["Визит к педиатру", "Проверка ползания и захвата предметов"] },
-    9: { title: "9 месяцев", items: ["Осмотр у педиатра и невролога", "Скрининг развития: моторика, понимание речи"] },
-    10: { title: "10 месяцев", items: ["Визит к педиатру", "Оценка: вставание у опоры, игра 'ладушки'"] },
-    11: { title: "11 месяцев", items: ["Осмотр у педиатра", "Проверка мелкой моторики и лепета"] },
     12: { title: "12 месяцев (1 год)", items: ["Годовой осмотр (педиатр, невролог, офтальмолог, ортопед, стоматолог)", "Скрининг: ходьба, первые слова, жесты", "Вакцины: КПК, HepA (1)"] },
 };
 
@@ -50,11 +95,6 @@ const MCHAT_RECOMMENDATIONS = {
 const STAGE_TESTS: Record<number, { question: string, items: string[] }> = {
     0: { question: "Проверка новорожденного", items: ["Реагирует на громкие звуки", "Пытается фокусировать взгляд", "Успокаивается на руках"] },
     12: { question: "Достижения 1 года", items: ["Делает несколько шагов сам", "Использует простые жесты", "Говорит 'мама' или 'папа'"] },
-    24: { question: "Навыки в 2 года", items: ["Фразы из двух слов", "Знает части тела", "Умеет бегать"] },
-    36: { question: "Развитие в 3 года", items: ["Одевается сам", "Вопросы 'Почему?'", "Педали велосипеда"] },
-    48: { question: "Навыки в 4 года", items: ["Рисует человека", "Рассказывает о дне", "Ждет очереди"] },
-    60: { question: "Подготовка к школе (5 лет)", items: ["Считает до 10+", "Четко произносит звуки", "Знает свой адрес"] },
-    72: { question: "Готовность к школе (6 лет)", items: ["Читает по слогам", "Пишет свое имя", "Правила в играх"] },
 };
 
 // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
@@ -73,9 +113,7 @@ const calculateAgeInMonths = (mStr?: string | null, yStr?: string | null): numbe
 };
 
 const MyChildScreen: React.FC = () => {
-      const handleLogout = async () => {
-        router.replace('/login');
-      };
+    const handleLogout = async () => { router.replace('/login'); };
     const insets = useSafeAreaInsets();
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
@@ -90,7 +128,7 @@ const MyChildScreen: React.FC = () => {
     const [isScreeningAvailable, setIsScreeningAvailable] = useState(true);
 
     const [isTestVisible, setIsTestVisible] = useState(false);
-    const [isHistoryVisible, setIsHistoryVisible] = useState(false); // Для календаря
+    const [isHistoryVisible, setIsHistoryVisible] = useState(false);
     const [selectedStage, setSelectedStage] = useState<any>(null);
     const [testProgress, setTestProgress] = useState<string[]>([]);
 
@@ -108,18 +146,11 @@ const MyChildScreen: React.FC = () => {
             }];
 
             if (map.extraChildren) {
-                try {
-                    const extra = JSON.parse(map.extraChildren);
-                    if (Array.isArray(extra)) {
-                        extra.forEach((c) => {
-                            const extraAge = calculateAgeInMonths(c.birthMonth, c.birthYear);
-                            mainList.push({
-                                id: c.id, name: c.name, tag: `${extraAge} мес.`,
-                                ageGroup: 'unknown', ageMonths: extraAge, color: '#10B981'
-                            });
-                        });
-                    }
-                } catch (e) { }
+                const extra = JSON.parse(map.extraChildren);
+                extra.forEach((c: any) => {
+                    const extraAge = calculateAgeInMonths(c.birthMonth, c.birthYear);
+                    mainList.push({ id: c.id, name: c.name, tag: `${extraAge} мес.`, ageGroup: 'unknown', ageMonths: extraAge, color: '#10B981' });
+                });
             }
             setChildrenList(mainList);
 
@@ -130,11 +161,8 @@ const MyChildScreen: React.FC = () => {
             if (lastDate) {
                 const d = new Date(lastDate);
                 const now = new Date();
-                const alreadyDoneThisMonth = d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
-                setIsScreeningAvailable(!alreadyDoneThisMonth);
-            } else {
-                setIsScreeningAvailable(true);
-            }
+                setIsScreeningAvailable(!(d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()));
+            } else { setIsScreeningAvailable(true); }
 
             const savedConfirmed = await AsyncStorage.getItem(`confirmed_stages_${currentId}`);
             setConfirmedStages(savedConfirmed ? JSON.parse(savedConfirmed) : []);
@@ -149,12 +177,8 @@ const MyChildScreen: React.FC = () => {
             ]);
             setCompletedActivities(actProgress);
             setCompletedMilestones(milProgress);
-        } catch (error) {
-            console.error(error);
-        } finally {
-            setLoading(false);
-            setRefreshing(false);
-        }
+        } catch (error) { console.error(error); } 
+        finally { setLoading(false); setRefreshing(false); }
     }, [activeChildIndex]);
 
     useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
@@ -164,6 +188,45 @@ const MyChildScreen: React.FC = () => {
         await AsyncStorage.setItem('activeChildIndex', index.toString());
     };
 
+    const screeningInfo = currentChildAge >= 16 
+        ? { title: "Скрининг M-CHAT-R", sub: "Риск аутизма (16-30 мес)", path: "/screening", icon: "shield-checkmark" }
+        : { title: "Скрининг развития", sub: `Навыки для ${currentChildAge} мес.`, path: "/screening_early", icon: "trending-up" };
+
+    // --- РЕНДЕРИНГ РЕЗУЛЬТАТОВ РАННЕГО СКРИНИНГА ---
+    const renderEarlyResults = () => {
+        if (!mchatStatus || mchatStatus.type !== 'early' || !mchatStatus.answers) return null;
+        
+        const targetAge = mchatStatus.targetAge;
+        const questions = EARLY_QUESTIONS_DB[targetAge] || [];
+
+        return (
+            <View style={styles.resultsCard}>
+                <View style={styles.resultsHeader}>
+                    <Ionicons name="analytics" size={20} color="#6366F1" />
+                    <Text style={styles.resultsTitle}>Анализ развития ({targetAge} мес.)</Text>
+                </View>
+                {questions.map((q: any) => {
+                    const ans = mchatStatus.answers[q.id];
+                    if (!ans) return null;
+                    const color = ans === 'green' ? '#10B981' : ans === 'yellow' ? '#F59E0B' : '#EF4444';
+                    return (
+                        <View key={q.id} style={styles.resRow}>
+                            <View style={styles.resTop}>
+                                <View style={[styles.resDot, { backgroundColor: color }]} />
+                                <Text style={styles.resQText}>{q.text}</Text>
+                            </View>
+                            {ans !== 'green' && (
+                                <View style={styles.resRecBox}>
+                                    <Text style={styles.resRecText}>💡 Рекомендация: {q.rec}</Text>
+                                </View>
+                            )}
+                        </View>
+                    );
+                })}
+            </View>
+        );
+    };
+
     const toggleTestItem = (item: string) => {
         if (selectedStage && confirmedStages.includes(selectedStage.m)) return;
         setTestProgress(prev => prev.includes(item) ? prev.filter(i => i !== item) : [...prev, item]);
@@ -171,18 +234,15 @@ const MyChildScreen: React.FC = () => {
 
     const handleCompleteTest = async () => {
         const stageMonths = selectedStage.m;
-        const isAlreadyConfirmed = confirmedStages.includes(stageMonths);
         if (testProgress.length === STAGE_TESTS[stageMonths].items.length) {
-            if (isAlreadyConfirmed) { setIsTestVisible(false); return; }
+            if (confirmedStages.includes(stageMonths)) { setIsTestVisible(false); return; }
             const currentId = childrenList[activeChildIndex].id;
             const newConfirmed = [...new Set([...confirmedStages, stageMonths])];
             await AsyncStorage.setItem(`confirmed_stages_${currentId}`, JSON.stringify(newConfirmed));
             setConfirmedStages(newConfirmed);
             Alert.alert("Поздравляем!", `Этап "${selectedStage.title}" подтвержден.`);
             setIsTestVisible(false);
-        } else {
-            Alert.alert("Внимание", "Отметьте все пункты.");
-        }
+        } else { Alert.alert("Внимание", "Отметьте все пункты."); }
     };
 
     const renderJourneyMap = () => {
@@ -274,29 +334,34 @@ const MyChildScreen: React.FC = () => {
                 
                 <TouchableOpacity 
                     style={[styles.riskCard, !isScreeningAvailable && styles.riskCardDisabled]} 
-                    onPress={() => isScreeningAvailable ? router.push({ pathname: "/screening", params: { childId: childrenList[activeChildIndex].id } }) : Alert.alert("Тест пройден", "Скрининг можно проводить раз в месяц.")}
+                    onPress={() => isScreeningAvailable ? router.push({ pathname: screeningInfo.path as any, params: { childId: childrenList[activeChildIndex].id } }) : Alert.alert("Тест пройден", "Скрининг можно проводить раз в месяц.")}
                 >
-                    <LinearGradient colors={!isScreeningAvailable ? (mchatStatus?.status === 'high' ? ['#EF4444', '#B91C1C'] : mchatStatus?.status === 'medium' ? ['#F59E0B', '#D97706'] : ['#10B981', '#059669']) : ['#6366F1', '#4F46E5']} style={styles.riskIconContainer}>
-                        <Ionicons name={!isScreeningAvailable ? "stats-chart" : "shield-checkmark"} size={24} color="#FFF" />
+                    <LinearGradient colors={!isScreeningAvailable ? (mchatStatus?.type === 'early' ? ['#6366F1', '#4F46E5'] : (mchatStatus?.status === 'high' ? ['#EF4444', '#B91C1C'] : mchatStatus?.status === 'medium' ? ['#F59E0B', '#D97706'] : ['#10B981', '#059669'])) : ['#6366F1', '#4F46E5']} style={styles.riskIconContainer}>
+                        <Ionicons name={!isScreeningAvailable ? "stats-chart" : screeningInfo.icon as any} size={24} color="#FFF" />
                     </LinearGradient>
                     <View style={{ flex: 1, marginLeft: 16 }}>
-                        <Text style={styles.riskTitle}>Скрининг M-CHAT-R</Text>
+                        <Text style={styles.riskTitle}>{screeningInfo.title}</Text>
                         {!isScreeningAvailable && mchatStatus ? (
                             <View>
-                                <View style={styles.statusBadgeRow}>
-                                    <View style={[styles.miniStatusBadge, { backgroundColor: mchatStatus.status === 'low' ? '#DCFCE7' : mchatStatus.status === 'medium' ? '#FEF3C7' : '#FEE2E2' }]}>
-                                        <Text style={[styles.miniStatusText, { color: mchatStatus.status === 'low' ? '#166534' : mchatStatus.status === 'medium' ? '#92400E' : '#991B1B' }]}>{mchatStatus.status === 'low' ? 'НИЗКИЙ РИСК' : mchatStatus.status === 'medium' ? 'СРЕДНИЙ РИСК' : 'ВЫСОКИЙ РИСК'}</Text>
+                                {mchatStatus.type !== 'early' && (
+                                    <View style={styles.statusBadgeRow}>
+                                        <View style={[styles.miniStatusBadge, { backgroundColor: mchatStatus.status === 'low' ? '#DCFCE7' : mchatStatus.status === 'medium' ? '#FEF3C7' : '#FEE2E2' }]}>
+                                            <Text style={[styles.miniStatusText, { color: mchatStatus.status === 'low' ? '#166534' : mchatStatus.status === 'medium' ? '#92400E' : '#991B1B' }]}>{mchatStatus.status === 'low' ? 'НИЗКИЙ РИСК' : mchatStatus.status === 'medium' ? 'СРЕДНИЙ РИСК' : 'ВЫСОКИЙ РИСК'}</Text>
+                                        </View>
                                     </View>
-                                </View>
+                                )}
                                 <Text style={styles.dateText}>Проверено: {formatDate(mchatStatus.date)}</Text>
                             </View>
-                        ) : (<Text style={styles.riskSub}>Тест на риск аутизма</Text>)}
+                        ) : (<Text style={styles.riskSub}>{screeningInfo.sub}</Text>)}
                     </View>
                     <View style={styles.lockInfo}>{!isScreeningAvailable && <Ionicons name="lock-closed" size={16} color="#94A3B8" />}<Ionicons name="chevron-forward" size={20} color="#94A3B8" style={{marginLeft: 4}} /></View>
                 </TouchableOpacity>
 
-                {/* БЛОК РЕКОМЕНДАЦИЙ */}
-                {!isScreeningAvailable && mchatStatus && (
+                {/* БЛОК РЕЗУЛЬТАТОВ ДЛЯ РАННЕГО СКРИНИНГА */}
+                {renderEarlyResults()}
+
+                {/* БЛОК РЕКОМЕНДАЦИЙ ДЛЯ M-CHAT */}
+                {!isScreeningAvailable && mchatStatus && mchatStatus.type !== 'early' && (
                     <View style={[styles.recommendationCard, { backgroundColor: MCHAT_RECOMMENDATIONS[mchatStatus.status as keyof typeof MCHAT_RECOMMENDATIONS].bg }]}>
                         <View style={styles.recommendationHeader}>
                             <Ionicons name={MCHAT_RECOMMENDATIONS[mchatStatus.status as keyof typeof MCHAT_RECOMMENDATIONS].icon as any} size={20} color={MCHAT_RECOMMENDATIONS[mchatStatus.status as keyof typeof MCHAT_RECOMMENDATIONS].color} />
@@ -311,7 +376,6 @@ const MyChildScreen: React.FC = () => {
                     </View>
                 )}
 
-                {/* КАЛЕНДАРЬ НАПОМИНАНИЙ */}
                 {renderHealthReminders()}
 
                 <View style={styles.tabsContainer}>
@@ -356,7 +420,7 @@ const MyChildScreen: React.FC = () => {
                 )}
             </ScrollView>
 
-            {/* МОДАЛЬНЫЕ ОКНА */}
+            {/* Модалки Календаря и Тестов */}
             <Modal visible={isTestVisible} transparent animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
@@ -383,79 +447,44 @@ const MyChildScreen: React.FC = () => {
                 </View>
             </Modal>
 
-<Modal visible={isHistoryVisible} animationType="slide" transparent={false}>
-    <View style={{ flex: 1, backgroundColor: '#F8FAFC', paddingTop: insets.top, paddingBottom: insets.bottom }}>
-        {/* Хедер с размытым эффектом или просто чистый дизайн */}
-        <View style={styles.historyHeaderEnhanced}>
-            <TouchableOpacity 
-                onPress={() => setIsHistoryVisible(false)}
-                style={styles.closeButtonCircle}
-            >
-                <Ionicons name="close" size={24} color="#1E293B" />
-            </TouchableOpacity>
-            <View>
-                <Text style={styles.historyMainTitle}>Медицинская карта</Text>
-                <Text style={styles.historySubTitle}>План развития до 12 месяцев</Text>
-            </View>
-        </View>
-        
-        <ScrollView 
-            contentContainerStyle={{ padding: 24, paddingLeft: 35 }} // Отступ слева для линии таймлайна
-            showsVerticalScrollIndicator={false}
-        >
-            {/* Вертикальная линия таймлайна */}
-            <View style={styles.timelineLine} />
-
-            {Object.entries(MONTHLY_REMINDERS).map(([month, data]) => {
-                const m = parseInt(month);
-                const isPast = m < currentChildAge;
-                const isCurrent = m === currentChildAge;
-                
-                return (
-                    <View key={month} style={styles.timelineNode}>
-                        {/* Точка на таймлайне */}
-                        <View style={[
-                            styles.timelineDot, 
-                            isPast && styles.dotPast, 
-                            isCurrent && styles.dotCurrent
-                        ]}>
-                            {isPast && <Ionicons name="checkmark" size={12} color="#FFF" />}
-                        </View>
-
-                        <View style={[
-                            styles.enhancedHistoryCard,
-                            isCurrent && styles.cardCurrentActive,
-                            isPast && styles.cardPast
-                        ]}>
-                            {isCurrent && (
-                                <LinearGradient 
-                                    colors={['#6366F1', '#818CF8']} 
-                                    start={{x:0, y:0}} end={{x:1, y:0}}
-                                    style={styles.currentBadgeGradient}
-                                >
-                                    <Text style={styles.currentBadgeText}>ТЕКУЩИЙ ЭТАП</Text>
-                                </LinearGradient>
-                            )}
-
-                            <Text style={[styles.historyCardMonth, isCurrent && {color: '#6366F1'}]}>
-                                {data.title}
-                            </Text>
-
-                            <View style={styles.reminderItemsContainer}>
-                                {data.items.map((it, i) => (
-                                    <View key={i} style={styles.enhancedReminderRow}>
-                                        <View style={[styles.miniDot, {backgroundColor: isCurrent ? '#6366F1' : '#CBD5E1'}]} />
-                                        <Text style={styles.historyCardText}>{it}</Text>
-                                    </View>
-                                ))}
-                            </View>
+            <Modal visible={isHistoryVisible} animationType="slide" transparent={false}>
+                <View style={{ flex: 1, backgroundColor: '#F8FAFC', paddingTop: insets.top, paddingBottom: insets.bottom }}>
+                    <View style={styles.historyHeaderEnhanced}>
+                        <TouchableOpacity onPress={() => setIsHistoryVisible(false)} style={styles.closeButtonCircle}><Ionicons name="close" size={24} color="#1E293B" /></TouchableOpacity>
+                        <View>
+                            <Text style={styles.historyMainTitle}>Медицинская карта</Text>
+                            <Text style={styles.historySubTitle}>План развития до 12 месяцев</Text>
                         </View>
                     </View>
-                );
-            })}
-        </ScrollView>
-    </View>
-</Modal>
+                    <ScrollView contentContainerStyle={{ padding: 24, paddingLeft: 35 }} showsVerticalScrollIndicator={false}>
+                        <View style={styles.timelineLine} />
+                        {Object.entries(MONTHLY_REMINDERS).map(([month, data]) => {
+                            const m = parseInt(month);
+                            const isPast = m < currentChildAge;
+                            const isCurrent = m === currentChildAge;
+                            return (
+                                <View key={month} style={styles.timelineNode}>
+                                    <View style={[styles.timelineDot, isPast && styles.dotPast, isCurrent && styles.dotCurrent]}>{isPast && <Ionicons name="checkmark" size={12} color="#FFF" />}</View>
+                                    <View style={[styles.enhancedHistoryCard, isCurrent && styles.cardCurrentActive, isPast && styles.cardPast]}>
+                                        {isCurrent && (
+                                            <LinearGradient colors={['#6366F1', '#818CF8']} start={{x:0, y:0}} end={{x:1, y:0}} style={styles.currentBadgeGradient}><Text style={styles.currentBadgeText}>ТЕКУЩИЙ ЭТАП</Text></LinearGradient>
+                                        )}
+                                        <Text style={[styles.historyCardMonth, isCurrent && {color: '#6366F1'}]}>{data.title}</Text>
+                                        <View style={styles.reminderItemsContainer}>
+                                            {data.items.map((it, i) => (
+                                                <View key={i} style={styles.enhancedReminderRow}>
+                                                    <View style={[styles.miniDot, {backgroundColor: isCurrent ? '#6366F1' : '#CBD5E1'}]} />
+                                                    <Text style={styles.historyCardText}>{it}</Text>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    </View>
+                                </View>
+                            );
+                        })}
+                    </ScrollView>
+                </View>
+            </Modal>
         </SafeAreaView>
     );
 };
@@ -550,136 +579,34 @@ const styles = StyleSheet.create({
     btnConfirm: { flex: 1.5, paddingVertical: 12, alignItems: 'center', borderRadius: 12 },
     btnConfirmText: { color: '#FFF', fontWeight: '800' },
 
-    historyHeader: { flexDirection: 'row', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
-    historyTitle: { fontSize: 18, fontWeight: '800' },
-    historyCard: { backgroundColor: '#FFF', padding: 16, borderRadius: 16, marginBottom: 12, borderWidth: 1, borderColor: '#F1F5F9' },
-    // --- Улучшенный дизайн истории ---
-    historyHeaderEnhanced: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 20,
-        paddingVertical: 15,
-        backgroundColor: '#FFF',
-        borderBottomWidth: 1,
-        borderBottomColor: '#F1F5F9',
-    },
-    closeButtonCircle: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
-        backgroundColor: '#F1F5F9',
-        justifyContent: 'center',
-        alignItems: 'center',
-        marginRight: 15,
-    },
-    historyMainTitle: {
-        fontSize: 20,
-        fontWeight: '900',
-        color: '#1E293B',
-    },
-    historySubTitle: {
-        fontSize: 13,
-        color: '#94A3B8',
-        fontWeight: '600',
-    },
-    timelineLine: {
-        position: 'absolute',
-        left: 10,
-        top: 30,
-        bottom: 30,
-        width: 2,
-        backgroundColor: '#E2E8F0',
-        zIndex: 0,
-    },
-    timelineNode: {
-        marginBottom: 25,
-        position: 'relative',
-    },
-    timelineDot: {
-        position: 'absolute',
-        left: -33,
-        top: 20,
-        width: 18,
-        height: 18,
-        borderRadius: 9,
-        backgroundColor: '#FFF',
-        borderWidth: 2,
-        borderColor: '#CBD5E1',
-        zIndex: 2,
-        justifyContent: 'center',
-        alignItems: 'center',
-    },
-    dotPast: {
-        backgroundColor: '#10B981',
-        borderColor: '#10B981',
-    },
-    dotCurrent: {
-        backgroundColor: '#FFF',
-        borderColor: '#6366F1',
-        width: 22,
-        height: 22,
-        left: -35,
-        borderWidth: 4,
-    },
-    enhancedHistoryCard: {
-        backgroundColor: '#FFF',
-        borderRadius: 20,
-        padding: 18,
-        shadowColor: '#64748B',
-        shadowOffset: { width: 0, height: 4 },
-        shadowOpacity: 0.05,
-        shadowRadius: 12,
-        elevation: 3,
-        borderWidth: 1,
-        borderColor: '#F1F5F9',
-    },
-    cardCurrentActive: {
-        borderColor: '#6366F1',
-        shadowOpacity: 0.1,
-        shadowRadius: 20,
-        elevation: 6,
-    },
-    cardPast: {
-        backgroundColor: 'rgba(255,255,255,0.7)',
-    },
-    currentBadgeGradient: {
-        alignSelf: 'flex-start',
-        paddingHorizontal: 10,
-        paddingVertical: 4,
-        borderRadius: 8,
-        marginBottom: 10,
-    },
-    currentBadgeText: {
-        color: '#FFF',
-        fontSize: 9,
-        fontWeight: '900',
-        letterSpacing: 0.5,
-    },
-    reminderItemsContainer: {
-        marginTop: 10,
-    },
-    enhancedReminderRow: {
-        flexDirection: 'row',
-        alignItems: 'flex-start',
-        marginBottom: 8,
-    },
-    miniDot: {
-        width: 5,
-        height: 5,
-        borderRadius: 2.5,
-        marginTop: 7,
-        marginRight: 10,
-    },
-    historyCardMonth: {
-        fontSize: 17,
-        fontWeight: '800',
-        color: '#1E293B',
-    },
-    historyCardText: {
-        flex: 1,
-        fontSize: 14,
-        color: '#475569',
-        lineHeight: 20,
-        fontWeight: '500',
-    },
+    historyHeaderEnhanced: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 20, paddingVertical: 15, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
+    closeButtonCircle: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginRight: 15 },
+    historyMainTitle: { fontSize: 20, fontWeight: '900', color: '#1E293B' },
+    historySubTitle: { fontSize: 13, color: '#94A3B8', fontWeight: '600' },
+    timelineLine: { position: 'absolute', left: 10, top: 30, bottom: 30, width: 2, backgroundColor: '#E2E8F0', zIndex: 0 },
+    timelineNode: { marginBottom: 25, position: 'relative' },
+    timelineDot: { position: 'absolute', left: -33, top: 20, width: 18, height: 18, borderRadius: 9, backgroundColor: '#FFF', borderWidth: 2, borderColor: '#CBD5E1', zIndex: 2, justifyContent: 'center', alignItems: 'center' },
+    dotPast: { backgroundColor: '#10B981', borderColor: '#10B981' },
+    dotCurrent: { backgroundColor: '#FFF', borderColor: '#6366F1', width: 22, height: 22, left: -35, borderWidth: 4 },
+    enhancedHistoryCard: { backgroundColor: '#FFF', borderRadius: 20, padding: 18, elevation: 3, borderWidth: 1, borderColor: '#F1F5F9' },
+    cardCurrentActive: { borderColor: '#6366F1', elevation: 6 },
+    cardPast: { backgroundColor: 'rgba(255,255,255,0.7)' },
+    currentBadgeGradient: { alignSelf: 'flex-start', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 8, marginBottom: 10 },
+    currentBadgeText: { color: '#FFF', fontSize: 9, fontWeight: '900', letterSpacing: 0.5 },
+    reminderItemsContainer: { marginTop: 10 },
+    enhancedReminderRow: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 8 },
+    miniDot: { width: 5, height: 5, borderRadius: 2.5, marginTop: 7, marginRight: 10 },
+    historyCardMonth: { fontSize: 17, fontWeight: '800', color: '#1E293B' },
+    historyCardText: { flex: 1, fontSize: 14, color: '#475569', lineHeight: 20, fontWeight: '500' },
+
+    // Дополнительные стили для результатов
+    resultsCard: { backgroundColor: '#FFF', marginHorizontal: 24, padding: 20, borderRadius: 24, marginTop: -10, marginBottom: 20, borderWidth: 1, borderColor: '#F1F5F9' },
+    resultsHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#F8FAFC', paddingBottom: 10 },
+    resultsTitle: { fontSize: 14, fontWeight: '800', color: '#1E293B', marginLeft: 8 },
+    resRow: { marginBottom: 15 },
+    resTop: { flexDirection: 'row', alignItems: 'center' },
+    resDot: { width: 8, height: 8, borderRadius: 4, marginRight: 10 },
+    resQText: { fontSize: 13, color: '#475569', flex: 1, fontWeight: '600' },
+    resRecBox: { backgroundColor: '#F5F3FF', padding: 12, borderRadius: 12, marginTop: 6, marginLeft: 18 },
+    resRecText: { fontSize: 12, color: '#6366F1', lineHeight: 16, fontWeight: '500' },
 });
