@@ -377,18 +377,6 @@ const HomeScreen: React.FC = () => {
             </View>
         </View>
 
-        {/* ... Слово дня, Мамины минуты и Фото-челлендж остаются без изменений ... */}
-        <View style={styles.sectionContainer}>
-             <Text style={styles.sectionTitle}>Слово дня</Text>
-             <View style={styles.wordCard}>
-                 <View style={styles.wordIcon}><Text style={{fontSize: 28}}>{WORD_OF_DAY.emoji}</Text></View>
-                 <View style={{flex: 1}}>
-                     <Text style={styles.wordTitle}>{WORD_OF_DAY.word}</Text>
-                     <Text style={styles.wordDesc}>{WORD_OF_DAY.desc}</Text>
-                 </View>
-                 <TouchableOpacity style={styles.wordPlayBtn}><Ionicons name="volume-high-outline" size={20} color="#4F46E5" /></TouchableOpacity>
-             </View>
-        </View>
 
         <View style={styles.sectionContainer}>
              <LinearGradient colors={['#ECFEFF', '#CFFAFE']} start={{x: 0, y: 0}} end={{x: 1, y: 1}} style={styles.parentCard}>

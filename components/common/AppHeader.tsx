@@ -80,7 +80,7 @@ const AppHeader: React.FC<AppHeaderProps> = ({ childrenList, activeChildIndex, o
             <View>
               <Text style={styles.activeChildName}>
                 {activeChild?.name?.toUpperCase() || 'РЕБЕНОК'} 
-                <Text style={[styles.activeChildTag, { color: groupStyle.color }]}>
+                <Text style={[styles.activeChildTag, { color: '#57d8ffff' }]}>
                   {activeChild ? ` • ${activeChild.tag.toUpperCase()}` : ''}
                 </Text>
               </Text>

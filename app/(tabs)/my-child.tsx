@@ -23,6 +23,15 @@ import { MILESTONE_LIBRARY, MILESTONE_META, MilestoneCategory } from '../milesto
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+const formatAgeLabel = (months: number): string => {
+  if (months <= 0) return 'Малыш';
+  if (months < 12) return `${months} мес.`;
+  const years = Math.floor(months / 12);
+  const remainingMonths = months % 12;
+  if (remainingMonths === 0) return `${years} лет`;
+  return `${years} г. ${remainingMonths} мес.`;
+};
 // --- ПОЛНАЯ БАЗА ДАННЫХ ВОПРОСОВ И РЕКОМЕНДАЦИЙ (ДЛЯ ОТОБРАЖЕНИЯ В ПРОФИЛЕ) ---
 const EARLY_QUESTIONS_DB: Record<number, any[]> = {
     1: [
@@ -82,7 +91,16 @@ const EARLY_QUESTIONS_DB: Record<number, any[]> = {
 const MONTHLY_REMINDERS: Record<number, { title: string, items: string[] }> = {
     0: { title: "0 месяц", items: ["Осмотр неонатолога и педиатра", "Скрининг слуха, пульсоксиметрия, тест на гипотиреоз", "Вакцинации: BCG, HepB (0)"] },
     1: { title: "1 месяц", items: ["Визит к педиатру", "Осмотры: невролог, ортопед, хирург", "Контроль веса, рефлексов, тонуса"] },
+    2: { title: "2 месяца", items: ["Плановый приём у педиатра", "Вакцины: Pentaxim (1 доза), PCV13 (1), Rota (1)"] },
+    3: { title: "3 месяца", items: ["Осмотр у педиатра", "Контроль общего развития"] },
+    4: { title: "4 месяца", items: ["Визит к педиатру", "Оценка развития, переводов взгляда", "Вакцины: Pentaxim (2), PCV13 (2), Rota (2)"] },
+    5: { title: "5 месяцев", items: ["Плановый приём у педиатра", "Контроль моторики (перевороты)"] },
     6: { title: "6 месяцев", items: ["Визит к педиатру + невролог", "Осмотр офтальмолога", "Вакцины: Pentaxim (3), HepB (3), OPV (1)"] },
+    7: { title: "7 месяцев", items: ["Осмотр у педиатра", "Контроль навыков: сидение, реакция на имя"] },
+    8: { title: "8 месяцев", items: ["Визит к педиатру", "Проверка ползания и захвата предметов"] },
+    9: { title: "9 месяцев", items: ["Осмотр у педиатра и невролога", "Скрининг развития: моторика, понимание речи"] },
+    10: { title: "10 месяцев", items: ["Визит к педиатру", "Оценка: вставание у опоры, игра 'ладушки'"] },
+    11: { title: "11 месяцев", items: ["Осмотр у педиатра", "Проверка мелкой моторики и лепета"] },
     12: { title: "12 месяцев (1 год)", items: ["Годовой осмотр (педиатр, невролог, офтальмолог, ортопед, стоматолог)", "Скрининг: ходьба, первые слова, жесты", "Вакцины: КПК, HepA (1)"] },
 };
 
@@ -141,7 +159,7 @@ const MyChildScreen: React.FC = () => {
 
             const mainAge = calculateAgeInMonths(map.childBirthMonth, map.childBirthYear);
             const mainList: ChildChip[] = [{
-                id: 'main', name: map.childName || 'Ребёнок', tag: `${mainAge} мес.`,
+                id: 'main', name: map.childName || 'Ребёнок', tag: formatAgeLabel(mainAge),
                 ageGroup: 'unknown', ageMonths: mainAge, color: '#3B82F6',
             }];
 
@@ -149,7 +167,7 @@ const MyChildScreen: React.FC = () => {
                 const extra = JSON.parse(map.extraChildren);
                 extra.forEach((c: any) => {
                     const extraAge = calculateAgeInMonths(c.birthMonth, c.birthYear);
-                    mainList.push({ id: c.id, name: c.name, tag: `${extraAge} мес.`, ageGroup: 'unknown', ageMonths: extraAge, color: '#10B981' });
+                    mainList.push({ id: c.id, name: c.name, tag: formatAgeLabel(extraAge), ageGroup: 'unknown', ageMonths: extraAge, color: '#3B82F6' });
                 });
             }
             setChildrenList(mainList);

@@ -58,14 +58,14 @@ const CATEGORIES = [
 
 // --- ДАННЫЕ ДОКТОРОВ ---
 const DOCTORS_DATA = [
-  { id: '1', name: 'Др. Елена Соколова', specialty: 'Педиатр-невролог', catId: 'neuro', rating: '4.9', image: 'https://img.freepik.com/free-photo/doctor-with-co-workers-at-the-back_1098-1268.jpg', color: '#6366F1', minAge: 0, maxAge: 72, online: true },
-  { id: '2', name: 'Др. Иван Петров', specialty: 'Детский психолог', catId: 'psych', rating: '5.0', image: 'https://img.freepik.com/free-photo/portrait-of-male-doctor-with-stethoscope-smiling_23-2148827755.jpg', color: '#10B981', minAge: 24, maxAge: 180, online: true },
-  { id: '3', name: 'Др. Мария Левина', specialty: 'Логопед-дефектолог', catId: 'speech', rating: '4.8', image: 'https://img.freepik.com/free-photo/beautiful-young-female-doctor-looking-at-camera_23-2148480537.jpg', color: '#F59E0B', minAge: 18, maxAge: 72, online: false },
-  { id: '4', name: 'Др. Артем Громов', specialty: 'Детский ортопед', catId: 'ortho', rating: '4.7', image: 'https://img.freepik.com/free-photo/doctor-offering-medical-assistance-to-elderly-patient_23-2148827744.jpg', color: '#EC4899', minAge: 6, maxAge: 144, online: true },
-  { id: '5', name: 'Др. Анна Светлова', specialty: 'Педиатр высшей категории', catId: 'pediatric', rating: '4.9', image: 'https://img.freepik.com/free-photo/female-doctor-hospital-with-stethoscope_23-2148827772.jpg', color: '#3B82F6', minAge: 0, maxAge: 180, online: true },
-  { id: '6', name: 'Др. Виктор Цой', specialty: 'Детский реабилитолог', catId: 'neuro', rating: '4.6', image: 'https://img.freepik.com/free-photo/serious-male-doctor-looking-at-camera_23-2148827750.jpg', color: '#6366F1', minAge: 12, maxAge: 120, online: false },
-  { id: '7', name: 'Др. София Коваль', specialty: 'Нейропсихолог', catId: 'psych', rating: '5.0', image: 'https://img.freepik.com/free-photo/portrait-of-young-doctor-with-clipboard-and-stethoscope_23-2148827741.jpg', color: '#10B981', minAge: 36, maxAge: 180, online: true },
-  { id: '8', name: 'Др. Ольга Мур', specialty: 'Логопед-фонопед', catId: 'speech', rating: '4.7', image: 'https://img.freepik.com/free-photo/doctor-waiting-for-patient-in-hospital-office_23-2148827740.jpg', color: '#F59E0B', minAge: 24, maxAge: 96, online: false },
+  { id: '1', name: 'Др. Ажар Нурбекова', specialty: 'Педиатр-невролог', catId: 'neuro', rating: '4.9', image: 'https://img.freepik.com/free-photo/doctor-with-co-workers-at-the-back_1098-1268.jpg', color: '#6366F1', minAge: 0, maxAge: 72, online: true },
+  { id: '2', name: 'Др. Мади Насипкалиев', specialty: 'Детский психолог', catId: 'psych', rating: '5.0', image: 'https://img.freepik.com/free-photo/portrait-of-male-doctor-with-stethoscope-smiling_23-2148827755.jpg', color: '#10B981', minAge: 24, maxAge: 180, online: true },
+  { id: '3', name: 'Др. Шугыла Адилова', specialty: 'Логопед-дефектолог', catId: 'speech', rating: '4.8', image: 'https://img.freepik.com/free-photo/beautiful-young-female-doctor-looking-at-camera_23-2148480537.jpg', color: '#F59E0B', minAge: 18, maxAge: 72, online: false },
+  { id: '4', name: 'Др. Даулет Калкаман', specialty: 'Детский ортопед', catId: 'ortho', rating: '4.7', image: 'https://img.freepik.com/free-photo/doctor-offering-medical-assistance-to-elderly-patient_23-2148827744.jpg', color: '#EC4899', minAge: 6, maxAge: 144, online: true },
+  { id: '5', name: 'Др. Алтынай Даулеткалиев', specialty: 'Педиатр высшей категории', catId: 'pediatric', rating: '4.9', image: 'https://img.freepik.com/free-photo/female-doctor-hospital-with-stethoscope_23-2148827772.jpg', color: '#3B82F6', minAge: 0, maxAge: 180, online: true },
+  { id: '6', name: 'Др. Батыр Каскелен', specialty: 'Детский реабилитолог', catId: 'neuro', rating: '4.6', image: 'https://img.freepik.com/free-photo/serious-male-doctor-looking-at-camera_23-2148827750.jpg', color: '#6366F1', minAge: 12, maxAge: 120, online: false },
+  { id: '7', name: 'Др. Жаннур Жанибекова', specialty: 'Нейропсихолог', catId: 'psych', rating: '5.0', image: 'https://img.freepik.com/free-photo/portrait-of-young-doctor-with-clipboard-and-stethoscope_23-2148827741.jpg', color: '#10B981', minAge: 36, maxAge: 180, online: true },
+  { id: '8', name: 'Др. Толганай Мырзакелди', specialty: 'Логопед-фонопед', catId: 'speech', rating: '4.7', image: 'https://img.freepik.com/free-photo/doctor-waiting-for-patient-in-hospital-office_23-2148827740.jpg', color: '#F59E0B', minAge: 24, maxAge: 96, online: false },
 ];
 
 const ARTICLES = [
