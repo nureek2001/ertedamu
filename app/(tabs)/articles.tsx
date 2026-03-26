@@ -1,8 +1,8 @@
+// app/(tabs)/articles.tsx
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Dimensions,
@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { api, logoutRequest } from '@/lib/api';
 import AppHeader, { ChildChip } from '../../components/common/AppHeader';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -39,80 +40,45 @@ const calculateAgeInMonths = (mStr?: string | null, yStr?: string | null): numbe
   return age < 1 ? 1 : age;
 };
 
-// --- РАСШИРЕННАЯ БАЗА СТАТЕЙ ---
-export const ARTICLES_DATA = [
-  // ПИТАНИЕ (food)
-  {
-    id: '1',
-    title: 'Первый прикорм: пошаговое руководство для мам',
-    category: 'food', tag: 'Питание', readTime: '7 мин',
-    image: 'https://images.unsplash.com/photo-1596464716127-f2a82984de30?q=80&w=500',
-    color: '#F59E0B', minMonths: 4, maxMonths: 12,
-    content: 'Когда малышу исполняется 4-6 месяцев, грудного молока или смеси становится недостаточно. Вводить прикорм нужно постепенно, начиная с однокомпонентных овощных пюре (кабачок, брокколи). Не заставляйте ребенка есть, если он отказывается — знакомство с едой должно быть в радость.'
-  },
-  {
-    id: '2',
-    title: 'Витамины для роста: что должно быть в рационе',
-    category: 'food', tag: 'Питание', readTime: '5 мин',
-    image: 'https://images.unsplash.com/photo-1490818387583-1baba5e638af?q=80&w=500',
-    color: '#F59E0B', minMonths: 12, maxMonths: 72,
-    content: 'Для активного роста ребенку необходимы кальций, железо и витамин D. Включайте в рацион творог, рыбу и свежую зелень. Помните, что лучший способ привить любовь к здоровой еде — это личный пример родителей.'
-  },
+// --- BACKEND TYPES ---
+type Child = {
+  id: number;
+  family: number;
+  first_name: string;
+  birth_date: string;
+  gender: 'male' | 'female';
+  is_primary: boolean;
+  created_at: string;
+  age_months: number;
+  latest_measurement: {
+    id: number;
+    height: string | null;
+    weight: string | null;
+    measured_at: string;
+    note: string | null;
+  } | null;
+};
 
-  // ПСИХОЛОГИЯ (psych)
-  {
-    id: '3',
-    title: 'Как расшифровать плач новорожденного?',
-    category: 'psych', tag: 'Психология', readTime: '5 мин',
-    image: 'https://images.unsplash.com/photo-1544123156-f99a2c32ee5b?q=80&w=500',
-    color: '#EC4899', minMonths: 0, maxMonths: 8,
-    content: 'Плач — это первый язык ребенка. Голодный плач обычно настойчивый и ритмичный. Если малыш плачет от боли, звук более резкий и пронзительный. Со временем вы начнете интуитивно различать эти сигналы.'
-  },
-  {
-    id: '4',
-    title: 'Кризис 3 лет: спокойствие, только спокойствие',
-    category: 'psych', tag: 'Психология', readTime: '10 мин',
-    image: 'https://images.unsplash.com/photo-1502086223501-7ea6ecd79368?q=80&w=500',
-    color: '#EC4899', minMonths: 24, maxMonths: 48,
-    content: 'Знаменитое "Я сам!" и частые истерики — это признаки взросления. Ребенок учится осознавать свои границы. Не подавляйте волю ребенка, давайте ему возможность выбора в простых вещах: какую футболку надеть или из какой тарелки есть.'
-  },
+type ActiveChildResponse = {
+  id: number;
+  user: number;
+  family: number;
+  active_child: Child | null;
+  updated_at: string;
+};
 
-  // РАЗВИТИЕ (edu)
-  {
-    id: '5',
-    title: 'Сенсорные игры: развиваем моторику с рождения',
-    category: 'edu', tag: 'Развитие', readTime: '6 мин',
-    image: 'https://images.unsplash.com/photo-1515488042361-ee00e0ddd4e4?q=80&w=500',
-    color: '#6366F1', minMonths: 0, maxMonths: 24,
-    content: 'Развитие мелкой моторики напрямую связано с развитием речи. Давайте малышу трогать разные текстуры: гладкий шелк, шершавую бумагу, мягкий мех. После года отлично помогают игры с крупами и кинетическим песком.'
-  },
-  {
-    id: '6',
-    title: 'Подготовка к школе: на что обратить внимание',
-    category: 'edu', tag: 'Развитие', readTime: '12 мин',
-    image: 'https://images.unsplash.com/photo-1503676260728-1c00da094a0b?q=80&w=500',
-    color: '#6366F1', minMonths: 48, maxMonths: 84,
-    content: 'Готовность к школе — это не только умение читать и считать. Гораздо важнее психологическая зрелость: умение концентрироваться, следовать правилам и общаться со сверстниками. Больше играйте в настольные игры — они учат ждать своей очереди и проигрывать без слез.'
-  },
-
-  // ЗДОРОВЬЕ (health)
-  {
-    id: '7',
-    title: 'Закаливание: как начать и не навредить',
-    category: 'health', tag: 'Здоровье', readTime: '8 мин',
-    image: 'https://рндтува.рф/wp-content/uploads/2024/04/RM9NtA3jtuE-600x450.jpg',
-    color: '#10B981', minMonths: 6, maxMonths: 72,
-    content: 'Начинайте с воздушных ванн. Постепенно снижайте температуру воды при купании на 1 градус в неделю. Главное правило — регулярность и положительный настрой ребенка.'
-  },
-  {
-    id: '8',
-    title: 'Здоровый сон: создаем идеальные условия',
-    category: 'health', tag: 'Здоровье', readTime: '6 мин',
-    image: 'https://bmcudp.kz/upload/iblock/701/701d5a2ffdabadf140c0ab8557ef12c8.jpg',
-    color: '#10B981', minMonths: 0, maxMonths: 36,
-    content: 'Температура в комнате должна быть 18-22 градуса. Важен ритуал отхода ко сну: купание, чтение книги, тихая музыка. Это помогает нервной системе ребенка переключиться в режим отдыха.'
-  }
-];
+type Article = {
+  id: number;
+  title: string;
+  category: 'health' | 'psych' | 'edu' | 'food';
+  tag: string;
+  read_time: string;
+  image: string;
+  color: string;
+  min_months: number;
+  max_months: number;
+  content: string;
+};
 
 const CATEGORIES = [
   { id: 'all', title: 'Все', icon: 'list' },
@@ -128,95 +94,161 @@ const ArticlesScreen = () => {
   const [selectedCat, setSelectedCat] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [articles, setArticles] = useState<Article[]>([]);
 
   const loadData = useCallback(async () => {
     try {
-      const entries = await AsyncStorage.multiGet(['childName', 'childBirthMonth', 'childBirthYear', 'extraChildren', 'activeChildIndex']);
-      const map = Object.fromEntries(entries.map(([k, v]) => [k, v]));
-      let activeIdx = map.activeChildIndex ? parseInt(map.activeChildIndex) : 0;
+      setLoading(true);
 
-      const mainMonths = calculateAgeInMonths(map.childBirthMonth, map.childBirthYear);
-      const list: ChildChip[] = [{
-          id: 'main', name: map.childName || 'Ребёнок', tag: formatAgeLabel(mainMonths),
-          // @ts-ignore
-          ageGroup: mainMonths < 12 ? 'baby' : 'toddler', color: '#3B82F6',
-          // @ts-ignore
-          ageMonths: mainMonths,
-      }];
+      const [childrenRes, activeRes] = await Promise.all([
+        api.get<Child[]>('/api/families/children/'),
+        api.get<ActiveChildResponse>('/api/families/active-child/'),
+      ]);
 
-      if (map.extraChildren) {
-        try {
-          const ex = JSON.parse(map.extraChildren);
-          if (Array.isArray(ex)) {
-            ex.forEach((c: any) => {
-              const age = calculateAgeInMonths(c.birthMonth, c.birthYear);
-              list.push({
-                id: c.id, name: c.name, tag: formatAgeLabel(age),
-                // @ts-ignore
-                ageGroup: age < 12 ? 'baby' : 'toddler', color: '#10B981',
-                // @ts-ignore
-                ageMonths: age,
-              });
-            });
-          }
-        } catch (e) {}
+      if (!childrenRes || childrenRes.length === 0) {
+        setChildrenList([]);
+        setArticles([]);
+        setActiveChildIndex(0);
+        return;
       }
+
+      const list: ChildChip[] = childrenRes.map((child) => ({
+        id: String(child.id),
+        name: child.first_name,
+        tag: formatAgeLabel(child.age_months || 1),
+        // @ts-ignore
+        ageGroup: child.age_months < 12 ? 'baby' : 'toddler',
+        color: child.is_primary ? '#3B82F6' : '#10B981',
+        // @ts-ignore
+        ageMonths: child.age_months || 1,
+      }));
+
       setChildrenList(list);
-      setActiveChildIndex(activeIdx);
-    } catch (e) { console.error(e); } 
-    finally { setLoading(false); }
-  }, []);
+
+      const activeBackendId = activeRes?.active_child?.id
+        ? String(activeRes.active_child.id)
+        : String(childrenRes[0].id);
+
+      const foundIndex = list.findIndex((c) => c.id === activeBackendId);
+      const resolvedIndex = foundIndex >= 0 ? foundIndex : 0;
+      setActiveChildIndex(resolvedIndex);
+
+      const currentChild = list[resolvedIndex] || list[0];
+
+      let url = `/api/articles/?child_id=${currentChild.id}`;
+
+      if (selectedCat !== 'all') {
+        url += `&category=${selectedCat}`;
+      }
+
+      if (searchQuery.trim()) {
+        url += `&search=${encodeURIComponent(searchQuery.trim())}`;
+      }
+
+      const articlesRes = await api.get<Article[]>(url);
+      setArticles(articlesRes || []);
+    } catch (e: any) {
+      console.error('ARTICLES LOAD ERROR:', e);
+
+      if (e?.detail === 'Учетные данные не были предоставлены.') {
+        router.replace('/login');
+        return;
+      }
+
+      if (e?.detail === 'Семья не найдена.') {
+        setChildrenList([]);
+        setArticles([]);
+        setActiveChildIndex(0);
+        return;
+      }
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCat, searchQuery]);
 
   useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
   const currentAge = childrenList[activeChildIndex]?.ageMonths || 0;
 
-  const filteredArticles = ARTICLES_DATA.filter(article => {
-    const matchCategory = selectedCat === 'all' || article.category === selectedCat;
-    const matchSearch = article.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchAge = currentAge >= article.minMonths && currentAge <= article.maxMonths;
-    return matchCategory && matchSearch && matchAge;
-  });
+  const filteredArticles = useMemo(() => {
+    return articles.filter(article => {
+      const matchCategory = selectedCat === 'all' || article.category === selectedCat;
+      const matchSearch = article.title.toLowerCase().includes(searchQuery.toLowerCase());
+      const matchAge = currentAge >= article.min_months && currentAge <= article.max_months;
+      return matchCategory && matchSearch && matchAge;
+    });
+  }, [articles, selectedCat, searchQuery, currentAge]);
 
   const handleChildChange = async (index: number) => {
-    setActiveChildIndex(index);
-    await AsyncStorage.setItem('activeChildIndex', index.toString());
+    const child = childrenList[index];
+    if (!child) return;
+
+    try {
+      setActiveChildIndex(index);
+
+      await api.post('/api/families/active-child/set/', {
+        child_id: Number(child.id),
+      });
+
+      await loadData();
+    } catch (e: any) {
+      console.error('ACTIVE CHILD CHANGE ERROR:', e);
+    }
   };
 
-  const openArticle = (id: string) => {
-    router.push(`/articles/${id}`);
+  const openArticle = (id: number) => {
+    router.push(`/articles/${id}` as any);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logoutRequest();
+    } finally {
+      router.replace('/login');
+    }
   };
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <AppHeader childrenList={childrenList} activeChildIndex={activeChildIndex} onChangeChild={handleChildChange} onLogout={() => router.replace('/login')} />
+      <AppHeader
+        childrenList={childrenList}
+        activeChildIndex={activeChildIndex}
+        onChangeChild={handleChildChange}
+        onLogout={handleLogout}
+      />
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        
-        {/* --- ПОИСК --- */}
+
         <View style={styles.searchContainer}>
           <View style={styles.searchBox}>
             <Ionicons name="search" size={20} color="#94A3B8" />
-            <TextInput placeholder="Поиск статей..." style={styles.searchInput} value={searchQuery} onChangeText={setSearchQuery} />
+            <TextInput
+              placeholder="Поиск статей..."
+              style={styles.searchInput}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+            />
           </View>
         </View>
 
-        {/* --- КАТЕГОРИИ --- */}
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.catScroll}>
           {CATEGORIES.map(cat => (
-            <TouchableOpacity key={cat.id} onPress={() => setSelectedCat(cat.id)} style={[styles.catBtn, selectedCat === cat.id && styles.catBtnActive]}>
+            <TouchableOpacity
+              key={cat.id}
+              onPress={() => setSelectedCat(cat.id)}
+              style={[styles.catBtn, selectedCat === cat.id && styles.catBtnActive]}
+            >
               <Ionicons name={cat.icon as any} size={18} color={selectedCat === cat.id ? '#FFF' : '#64748B'} />
               <Text style={[styles.catText, selectedCat === cat.id && styles.catTextActive]}>{cat.title}</Text>
             </TouchableOpacity>
           ))}
         </ScrollView>
 
-        {/* --- ГЛАВНАЯ СТАТЬЯ --- */}
         {filteredArticles.length > 0 && !searchQuery && (
           <View style={styles.featuredSection}>
             <Text style={styles.sectionTitle}>Актуально для {childrenList[activeChildIndex]?.name}</Text>
-            <TouchableOpacity 
-              style={styles.featuredCard} 
+            <TouchableOpacity
+              style={styles.featuredCard}
               activeOpacity={0.9}
               onPress={() => openArticle(filteredArticles[0].id)}
             >
@@ -229,7 +261,7 @@ const ArticlesScreen = () => {
                   <Text style={styles.featuredTitle}>{filteredArticles[0].title}</Text>
                   <View style={styles.row}>
                     <Ionicons name="time-outline" size={14} color="#FFF" />
-                    <Text style={styles.featuredMeta}>{filteredArticles[0].readTime}</Text>
+                    <Text style={styles.featuredMeta}>{filteredArticles[0].read_time}</Text>
                   </View>
                 </View>
               </LinearGradient>
@@ -237,16 +269,15 @@ const ArticlesScreen = () => {
           </View>
         )}
 
-        {/* --- СПИСОК СТАТЕЙ --- */}
         <View style={styles.listSection}>
           <Text style={styles.sectionTitle}>Полезные материалы</Text>
           {loading ? (
             <ActivityIndicator color="#6366F1" size="large" />
           ) : filteredArticles.length > 0 ? (
             filteredArticles.map(item => (
-              <TouchableOpacity 
-                key={item.id} 
-                style={styles.articleCard} 
+              <TouchableOpacity
+                key={item.id}
+                style={styles.articleCard}
                 activeOpacity={0.8}
                 onPress={() => openArticle(item.id)}
               >
@@ -256,7 +287,7 @@ const ArticlesScreen = () => {
                   <Text style={styles.articleTitle} numberOfLines={2}>{item.title}</Text>
                   <View style={styles.articleMeta}>
                     <Ionicons name="book-outline" size={14} color="#94A3B8" />
-                    <Text style={styles.metaText}>{item.readTime}</Text>
+                    <Text style={styles.metaText}>{item.read_time}</Text>
                   </View>
                 </View>
               </TouchableOpacity>

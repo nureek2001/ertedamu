@@ -1,6 +1,6 @@
+import { api } from '@/lib/api';
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ResizeMode, Video } from 'expo-av'; // Импорт плеера
+import { ResizeMode, Video } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
@@ -13,18 +13,28 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-
-import { getChildProgress, markActivityAsCompleted } from '../../utils/storage';
 import {
   CATEGORY_META,
   findActivityById
 } from './data';
 
+type ActiveChildResponse = {
+  id: number;
+  user: number;
+  family: number;
+  active_child: {
+    id: number;
+    first_name: string;
+    age_months: number;
+  } | null;
+  updated_at: string;
+};
+
 const ActivityDetailsScreen: React.FC = () => {
   const params = useLocalSearchParams<{ id?: string }>();
   const rawId = Array.isArray(params.id) ? params.id[0] : params.id;
-  
-  const videoRef = useRef<Video>(null); // Реф для управления плеером
+
+  const videoRef = useRef<Video>(null);
   const [isVideoLoading, setIsVideoLoading] = useState(true);
 
   const activity = useMemo(
@@ -33,42 +43,61 @@ const ActivityDetailsScreen: React.FC = () => {
   );
 
   const [difficultyMark, setDifficultyMark] = useState<'easy' | 'ok' | 'hard' | null>(null);
-  const [targetChildId, setTargetChildId] = useState<string>('main');
+  const [targetChildId, setTargetChildId] = useState<string>('');
 
   useEffect(() => {
     if (!activity) return;
+
     const loadInitialState = async () => {
       try {
-        const activeIdxStr = await AsyncStorage.getItem('activeChildIndex');
-        const extraStr = await AsyncStorage.getItem('extraChildren');
-        let resolvedId = 'main';
-        if (activeIdxStr && activeIdxStr !== '0') {
-             const idx = parseInt(activeIdxStr);
-             if (extraStr) {
-                 const extras = JSON.parse(extraStr);
-                 if (extras[idx - 1]) resolvedId = extras[idx - 1].id;
-             }
+        const activeChildRes = await api.get<ActiveChildResponse>('/api/families/active-child/');
+        const resolvedId = activeChildRes?.active_child?.id;
+
+        if (!resolvedId) {
+          setTargetChildId('');
+          setDifficultyMark(null);
+          return;
         }
-        setTargetChildId(resolvedId);
-        const progress = await getChildProgress(resolvedId);
-        const existingEntry = progress.find(p => p.activityId === activity.id);
-        if (existingEntry) {
-          setDifficultyMark(existingEntry.difficulty);
+
+        setTargetChildId(String(resolvedId));
+
+        const history = await api.get<any[]>(`/api/activities/children/${resolvedId}/history/`);
+
+        const existing = (history || []).find(
+          (item: any) => item.activity.slug === activity.id
+        );
+
+        if (existing) {
+          setDifficultyMark(existing.difficulty || 'ok');
+        } else {
+          setDifficultyMark(null);
         }
       } catch (e) {
-        console.warn('Error loading activity state:', e);
+        console.warn('LOAD ACTIVITY STATE ERROR:', e);
       }
     };
+
     loadInitialState();
   }, [activity]);
 
   const handleComplete = async (difficulty: 'easy' | 'ok' | 'hard') => {
-    if (!activity) return;
+    if (!activity || !targetChildId) return;
+
     setDifficultyMark(difficulty);
+
     try {
-        await markActivityAsCompleted(targetChildId, activity.id, difficulty);
-        setTimeout(() => { router.back(); }, 300);
-    } catch (e) { console.warn(e); }
+      await api.post(`/api/activities/${activity.id}/complete/`, {
+        child_id: Number(targetChildId),
+        difficulty,
+        note: 'completed from mobile',
+      });
+
+      setTimeout(() => {
+        router.back();
+      }, 300);
+    } catch (e) {
+      console.warn('COMPLETE ERROR:', e);
+    }
   };
 
   if (!activity) {
@@ -93,7 +122,6 @@ const ActivityDetailsScreen: React.FC = () => {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
-        {/* === ВЕРХНИЙ БЛОК (HERO) === */}
         <LinearGradient
           colors={meta.gradient}
           start={{ x: 0, y: 0 }}
@@ -111,7 +139,7 @@ const ActivityDetailsScreen: React.FC = () => {
 
             <View style={styles.heroMetaRight}>
               <View style={styles.categoryBadge}>
-                 <Text style={styles.heroCategory}>{meta.label}</Text>
+                <Text style={styles.heroCategory}>{meta.label}</Text>
               </View>
               <Text style={styles.heroTime}>
                 ⏱ {activity.minutes} мин · {activity.difficulty}
@@ -121,7 +149,7 @@ const ActivityDetailsScreen: React.FC = () => {
 
           <View style={styles.heroTitleRow}>
             <View style={styles.emojiContainer}>
-                <Text style={styles.heroEmoji}>{meta.emoji}</Text>
+              <Text style={styles.heroEmoji}>{meta.emoji}</Text>
             </View>
             <Text style={styles.heroTitle}>{activity.title}</Text>
           </View>
@@ -129,7 +157,6 @@ const ActivityDetailsScreen: React.FC = () => {
           <Text style={styles.heroSubtitle}>{activity.subtitle}</Text>
         </LinearGradient>
 
-        {/* === ВИДЕО ПЛЕЕР === */}
         <View style={styles.videoCard}>
           {isVideoLoading && (
             <View style={styles.videoLoader}>
@@ -139,9 +166,7 @@ const ActivityDetailsScreen: React.FC = () => {
           <Video
             ref={videoRef}
             style={styles.video}
-            // Здесь используйте activity.videoUrl, когда добавите его в базу данных
             source={{ uri: activity.videoUrl || '' }}
-
             useNativeControls
             resizeMode={ResizeMode.COVER}
             isLooping
@@ -151,10 +176,9 @@ const ActivityDetailsScreen: React.FC = () => {
           />
         </View>
 
-        {/* Оценка сложности */}
         <View style={styles.segmentCard}>
           <Text style={styles.segmentTitle}>
-             {difficultyMark ? 'Задание выполнено!' : 'Как прошло занятие?'}
+            {difficultyMark ? 'Задание выполнено!' : 'Как прошло занятие?'}
           </Text>
           <View style={styles.segmentRow}>
             {[
@@ -173,7 +197,7 @@ const ActivityDetailsScreen: React.FC = () => {
                     selected && styles.segmentChipActive,
                   ]}
                 >
-                  <Text style={[styles.segmentEmoji, selected && {opacity: 1}]}>{opt.emoji}</Text>
+                  <Text style={[styles.segmentEmoji, selected && { opacity: 1 }]}>{opt.emoji}</Text>
                   <Text
                     style={[
                       styles.segmentChipText,
@@ -188,9 +212,6 @@ const ActivityDetailsScreen: React.FC = () => {
           </View>
         </View>
 
-        {/* Остальные блоки контента (Цель, Материалы, Ход занятия...) */}
-        {/* ... (ваш оригинальный код блоков) ... */}
-        
         <View style={styles.block}>
           <View style={styles.blockHeaderRow}>
             <Ionicons name="flag-outline" size={20} color={meta.gradient[0]} />
@@ -201,17 +222,17 @@ const ActivityDetailsScreen: React.FC = () => {
 
         <View style={styles.block}>
           <View style={styles.blockHeaderRow}>
-             <Ionicons name="footsteps-outline" size={20} color={meta.gradient[0]} />
-             <Text style={styles.blockTitle}>Ход занятия</Text>
+            <Ionicons name="footsteps-outline" size={20} color={meta.gradient[0]} />
+            <Text style={styles.blockTitle}>Ход занятия</Text>
           </View>
           <View style={styles.stepsContainer}>
             {activity.steps.map((step, index) => (
-                <View key={index.toString()} style={styles.stepRow}>
+              <View key={index.toString()} style={styles.stepRow}>
                 <View style={styles.stepBadge}>
-                    <Text style={[styles.stepBadgeText, { color: meta.gradient[1] }]}>{index + 1}</Text>
+                  <Text style={[styles.stepBadgeText, { color: meta.gradient[1] }]}>{index + 1}</Text>
                 </View>
                 <Text style={styles.stepText}>{step}</Text>
-                </View>
+              </View>
             ))}
           </View>
         </View>
@@ -222,9 +243,7 @@ const ActivityDetailsScreen: React.FC = () => {
   );
 };
 
-// ОБНОВЛЕННЫЕ СТИЛИ
 const styles = StyleSheet.create({
-  // ... (ваши оригинальные стили) ...
   screen: { flex: 1, backgroundColor: '#FFFFFF' },
   scrollContent: { paddingBottom: 24 },
   hero: { paddingTop: 12, paddingHorizontal: 24, paddingBottom: 48, borderBottomLeftRadius: 32, borderBottomRightRadius: 32 },
@@ -240,9 +259,8 @@ const styles = StyleSheet.create({
   heroTitle: { flex: 1, fontSize: 24, fontWeight: '900', color: '#FFFFFF', lineHeight: 30, paddingTop: 4 },
   heroSubtitle: { fontSize: 15, color: 'rgba(255,255,255,0.85)', lineHeight: 22, marginTop: 4 },
 
-  // НОВЫЕ СТИЛИ ДЛЯ ВИДЕО
   videoCard: {
-    marginTop: -28, // Наплыв на Hero блок
+    marginTop: -28,
     marginHorizontal: 20,
     height: 220,
     backgroundColor: '#000',

@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Dimensions,
   FlatList,
@@ -21,12 +22,12 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { width, height } = Dimensions.get('window');
+import { api, getMe, loginRequest } from '@/lib/api';
 
-// маршрут главного экрана
+const { width } = Dimensions.get('window');
+
 const MAIN_APP_ROUTE = '/(tabs)';
 
-// типы
 type AgeGroup = 'baby' | 'toddler' | 'preschool';
 type ParentRole =
   | 'mother'
@@ -51,7 +52,7 @@ type ExtraChild = {
   birthDay: string;
   birthMonth: string;
   birthYear: string;
-  gender: string; // 'boy' | 'girl' | 'other' или пусто
+  gender: string;
   height: string;
   weight: string;
 };
@@ -63,7 +64,6 @@ const SLIDES: Slide[] = [
   { id: '4', type: 'overview' },
 ];
 
-// расчёт возрастной группы по месяцу/году рождения
 const calculateAgeGroup = (
   dayStr: string,
   monthStr: string,
@@ -96,25 +96,52 @@ const calculateAgeGroup = (
 
   let totalMonths = yearDiff * 12 + monthDiff;
 
-  // если текущий день меньше дня рождения — ещё не полный месяц
   if (dayDiff < 0) {
     totalMonths -= 1;
   }
 
   if (totalMonths < 0) return null;
 
-  if (totalMonths < 12) return 'baby';      // 0–1
-  if (totalMonths < 36) return 'toddler';   // 1–3
-  return 'preschool';                       // 3–6+
+  if (totalMonths < 12) return 'baby';
+  if (totalMonths < 36) return 'toddler';
+  return 'preschool';
 };
+
+function toIsoDate(day: string, month: string, year: string) {
+  const dd = String(day || '').padStart(2, '0');
+  const mm = String(month || '').padStart(2, '0');
+  return `${year}-${mm}-${dd}`;
+}
+
+function uiRoleToBackend(role: ParentRole): string {
+  switch (role) {
+    case 'mother':
+      return 'mother';
+    case 'father':
+      return 'father';
+    case 'grandma':
+      return 'grandmother';
+    case 'grandpa':
+      return 'grandfather';
+    case 'relative':
+      return 'relative';
+    case 'other':
+    default:
+      return 'relative';
+  }
+}
+
+function uiGenderToBackend(gender: string): 'male' | 'female' {
+  return gender === 'girl' ? 'female' : 'male';
+}
 
 const OnboardingScreen: React.FC = () => {
   const [checkingOnboarding, setCheckingOnboarding] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
   const [currentIndex, setCurrentIndex] = useState(0);
   const flatListRef = useRef<FlatList<Slide> | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
-  // ребёнок (основной)
   const [childName, setChildName] = useState('');
   const [birthDay, setBirthDay] = useState('');
   const [birthMonth, setBirthMonth] = useState('');
@@ -125,10 +152,8 @@ const OnboardingScreen: React.FC = () => {
   const [childHeight, setChildHeight] = useState('');
   const [childWeight, setChildWeight] = useState('');
 
-  // дополнительные дети
   const [extraChildren, setExtraChildren] = useState<ExtraChild[]>([]);
 
-  // родитель
   const [parentRole, setParentRole] = useState<ParentRole | null>(null);
   const [parentName, setParentName] = useState('');
   const [parentEmail, setParentEmail] = useState('');
@@ -136,23 +161,51 @@ const OnboardingScreen: React.FC = () => {
   const [parentPassword, setParentPassword] = useState('');
   const [parentPasswordConfirm, setParentPasswordConfirm] = useState('');
 
-  // анимация появления
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: 1,
       duration: 800,
       useNativeDriver: true,
     }).start();
-  }, []);
+  }, [fadeAnim]);
 
-  // при старте: если уже онбординг пройден — сразу в приложение
   useEffect(() => {
-    const checkOnboarding = async () => {
+    const bootstrap = async () => {
       try {
-        const value = await AsyncStorage.getItem('hasOnboarded');
-        if (value === 'true') {
-          router.replace(MAIN_APP_ROUTE);
-          return;
+        const hasOnboarded = await AsyncStorage.getItem('hasOnboarded');
+
+        if (hasOnboarded === 'true') {
+          const token = await AsyncStorage.getItem('accessToken');
+
+          if (!token) {
+            router.replace('/login');
+            return;
+          }
+
+          try {
+            const me = await getMe();
+
+            await AsyncStorage.multiSet([
+              ['isLoggedIn', 'true'],
+              ['activeUserRole', me.role || 'admin'],
+              ['currentSessionName', me.full_name || 'Пользователь'],
+              ['currentSessionRole', me.role || 'admin'],
+            ]);
+
+            router.replace(MAIN_APP_ROUTE);
+            return;
+          } catch {
+            await AsyncStorage.multiRemove([
+              'accessToken',
+              'refreshToken',
+              'isLoggedIn',
+              'activeUserRole',
+              'currentSessionName',
+              'currentSessionRole',
+            ]);
+            router.replace('/login');
+            return;
+          }
         }
       } catch (e) {
         console.warn('Error reading onboarding flag', e);
@@ -160,56 +213,138 @@ const OnboardingScreen: React.FC = () => {
         setCheckingOnboarding(false);
       }
     };
-    checkOnboarding();
+
+    bootstrap();
   }, []);
 
-  // авто-возрастная группа для основного ребёнка
   useEffect(() => {
     const group = calculateAgeGroup(birthDay, birthMonth, birthYear);
     setAgeGroup(group);
   }, [birthDay, birthMonth, birthYear]);
 
-  // форматирование номера телефона
-const formatPhoneNumber = (text: string) => {
-        let digits = text.replace(/\D/g, '');
-        if (digits.startsWith('7')) digits = digits.substring(1);
-        digits = digits.substring(0, 10);
-        let formatted = '+7 ';
-        if (digits.length > 0) formatted += digits.substring(0, 3);
-        if (digits.length > 3) formatted += ' ' + digits.substring(3, 6);
-        if (digits.length > 6) formatted += ' ' + digits.substring(6, 8);
-        if (digits.length > 8) formatted += ' ' + digits.substring(8, 10);
-        return formatted
+  const formatPhoneNumber = (text: string) => {
+    let digits = text.replace(/\D/g, '');
+    if (digits.startsWith('7')) digits = digits.substring(1);
+    digits = digits.substring(0, 10);
+
+    let formatted = '+7 ';
+    if (digits.length > 0) formatted += digits.substring(0, 3);
+    if (digits.length > 3) formatted += ' ' + digits.substring(3, 6);
+    if (digits.length > 6) formatted += ' ' + digits.substring(6, 8);
+    if (digits.length > 8) formatted += ' ' + digits.substring(8, 10);
+
+    return formatted;
   };
 
-  // переход в приложение и сохранение данных
+  const registerAndSetupAccount = async () => {
+    const normalizedEmail = parentEmail.trim().toLowerCase();
+    const familyName = `Family ${parentName.trim() || 'ErteDamu'}`;
+
+    await api.post(
+      '/api/auth/register/',
+      {
+        email: normalizedEmail,
+        phone: parentPhone.trim(),
+        full_name: parentName.trim(),
+        role: parentRole ? uiRoleToBackend(parentRole) : 'relative',
+        password: parentPassword,
+      },
+      false
+    );
+
+    await loginRequest(normalizedEmail, parentPassword);
+
+    const me = await getMe();
+
+    await AsyncStorage.multiSet([
+      ['isLoggedIn', 'true'],
+      ['activeUserRole', me.role || 'admin'],
+      ['currentSessionName', me.full_name || 'Пользователь'],
+      ['currentSessionRole', me.role || 'admin'],
+    ]);
+
+    try {
+      await api.post('/api/families/my/create/', {
+        name: familyName,
+      });
+    } catch (e: any) {
+      if (e?.detail !== 'У пользователя уже есть семья.') {
+        throw e;
+      }
+    }
+
+    await api.post('/api/families/children/', {
+      first_name: childName.trim(),
+      birth_date: toIsoDate(birthDay, birthMonth, birthYear),
+      gender: uiGenderToBackend(childGender || 'boy'),
+      is_primary: true,
+      initial_height: childHeight ? Number(childHeight) : undefined,
+      initial_weight: childWeight ? Number(childWeight) : undefined,
+    });
+
+    for (const child of extraChildren) {
+      const childNameValue = child.name.trim();
+      const hasDate =
+        child.birthDay.trim() &&
+        child.birthMonth.trim() &&
+        child.birthYear.trim().length === 4;
+
+      if (!childNameValue || !hasDate) continue;
+
+      await api.post('/api/families/children/', {
+        first_name: childNameValue,
+        birth_date: toIsoDate(child.birthDay, child.birthMonth, child.birthYear),
+        gender: uiGenderToBackend(child.gender || 'boy'),
+        is_primary: false,
+        initial_height: child.height ? Number(child.height) : undefined,
+        initial_weight: child.weight ? Number(child.weight) : undefined,
+      });
+    }
+
+    await AsyncStorage.multiSet([
+      ['hasOnboarded', 'true'],
+      ['parentName', parentName || ''],
+      ['parentRole', parentRole ?? ''],
+      ['parentEmail', parentEmail || ''],
+      ['parentPhone', parentPhone || ''],
+      ['childName', childName || ''],
+      ['childBirthDay', birthDay || ''],
+      ['childBirthMonth', birthMonth || ''],
+      ['childBirthYear', birthYear || ''],
+      ['childGender', childGender ?? ''],
+      ['childHeight', childHeight || ''],
+      ['childWeight', childWeight || ''],
+      ['language', homeLanguage ?? ''],
+      ['extraChildren', JSON.stringify(extraChildren)],
+    ]);
+  };
+
   const goToApp = async () => {
     try {
-      await AsyncStorage.multiSet([
-        ['hasOnboarded', 'true'],
-        ['parentName', parentName || ''],
-        ['parentRole', parentRole ?? ''],
-        ['parentEmail', parentEmail || ''],
-        ['parentPhone', parentPhone || ''],
-        ['parentPassword', parentPassword || ''],
-        ['childName', childName || ''],
-        ['childBirthDay', birthDay || ''],
-        ['childBirthMonth', birthMonth || ''],
-        ['childBirthYear', birthYear || ''],
-        ['childGender', childGender ?? ''],
-        ['childHeight', childHeight || ''],
-        ['childWeight', childWeight || ''],
-        ['language', homeLanguage ?? ''],
-        ['extraChildren', JSON.stringify(extraChildren)],
-        ['isLoggedIn', 'true'],
-      ]);
-    } catch (e) {
-      console.warn('Error saving onboarding data', e);
+      setSubmitting(true);
+      await registerAndSetupAccount();
+      router.replace(MAIN_APP_ROUTE);
+    } catch (e: any) {
+      console.warn('Onboarding submit error', e);
+
+      let message = 'Не удалось завершить регистрацию';
+
+      if (typeof e?.detail === 'string') {
+        message = e.detail;
+      } else if (typeof e?.email?.[0] === 'string') {
+        message = e.email[0];
+      } else if (typeof e?.password?.[0] === 'string') {
+        message = e.password[0];
+      } else if (typeof e?.full_name?.[0] === 'string') {
+        message = e.full_name[0];
+      }
+
+      Alert.alert('Ошибка', message);
+    } finally {
+      setSubmitting(false);
     }
-    router.replace(MAIN_APP_ROUTE);
   };
 
-  // валидации
   const isChildValid =
     childName.trim().length >= 2 &&
     birthDay.trim().length >= 1 &&
@@ -223,7 +358,6 @@ const formatPhoneNumber = (text: string) => {
     if (!parentRole) return false;
     if (parentName.trim().length < 2) return false;
     if (!parentEmail.includes('@') || parentEmail.trim().length < 5) return false;
-    // Проверяем что номер начинается с +7 и имеет 10 цифр после кода
     const phoneDigits = parentPhone.replace(/\D/g, '');
     if (phoneDigits.length !== 11 || !phoneDigits.startsWith('7')) return false;
     if (parentPassword.trim().length < 6) return false;
@@ -243,6 +377,7 @@ const formatPhoneNumber = (text: string) => {
       : true;
 
   const handleNext = () => {
+    if (submitting) return;
     if (currentSlideType === 'child' && !isChildValid) return;
     if (currentSlideType === 'parent' && !isParentValid) return;
 
@@ -259,13 +394,10 @@ const formatPhoneNumber = (text: string) => {
   const onMomentumScrollEnd = (
     event: NativeSyntheticEvent<NativeScrollEvent>
   ) => {
-    const index = Math.round(
-      event.nativeEvent.contentOffset.x / width
-    );
+    const index = Math.round(event.nativeEvent.contentOffset.x / width);
     setCurrentIndex(index);
   };
 
-  // дополнительные дети — логика
   const handleAddExtraChild = () => {
     if (extraChildren.length >= 3) return;
     setExtraChildren((prev) => [
@@ -299,7 +431,6 @@ const formatPhoneNumber = (text: string) => {
     setExtraChildren((prev) => prev.filter((child) => child.id !== id));
   };
 
-  // HEADER — обновлённый дизайн
   const renderHeader = () => (
     <LinearGradient
       colors={['#6366F1', '#8B5CF6']}
@@ -321,9 +452,8 @@ const formatPhoneNumber = (text: string) => {
     </LinearGradient>
   );
 
-  // Слайд 1: приветствие (ScrollView версия)
   const renderWelcomeSlide = () => (
-    <ScrollView 
+    <ScrollView
       style={styles.slideScroll}
       contentContainerStyle={styles.welcomeScrollContent}
       showsVerticalScrollIndicator={false}
@@ -337,7 +467,7 @@ const formatPhoneNumber = (text: string) => {
             <Text style={styles.illustrationEmoji}>👨‍👩‍👧‍👦</Text>
           </LinearGradient>
         </View>
-        
+
         <Text style={styles.mainTitle}>
           Добро пожаловать в{' '}
           <Text style={styles.gradientText}>ErteDamu</Text>
@@ -401,7 +531,7 @@ const formatPhoneNumber = (text: string) => {
                 </Text>
               </View>
             </View>
-            
+
             <View style={styles.stepItem}>
               <View style={styles.stepNumber}>
                 <Text style={styles.stepNumberText}>2</Text>
@@ -413,7 +543,7 @@ const formatPhoneNumber = (text: string) => {
                 </Text>
               </View>
             </View>
-            
+
             <View style={styles.stepItem}>
               <View style={styles.stepNumber}>
                 <Text style={styles.stepNumberText}>3</Text>
@@ -437,7 +567,6 @@ const formatPhoneNumber = (text: string) => {
     </ScrollView>
   );
 
-  // Слайд 2: ребёнок
   const renderChildSlide = () => (
     <ScrollView
       style={styles.slideScroll}
@@ -460,7 +589,7 @@ const formatPhoneNumber = (text: string) => {
 
       <View style={styles.formCard}>
         <Text style={styles.sectionTitle}>Основная информация</Text>
-        
+
         <View style={styles.inputGroup}>
           <Text style={styles.inputLabel}>Имя ребёнка</Text>
           <View style={styles.inputContainer}>
@@ -531,28 +660,36 @@ const formatPhoneNumber = (text: string) => {
                   !ageGroup && styles.ageGroupItemInactive,
                 ]}
               >
-                <View style={[
-                  styles.ageGroupIcon,
-                  ageGroup === item.key && styles.ageGroupIconActive,
-                ]}>
-                  <Text style={[
-                    styles.ageGroupEmoji,
-                    ageGroup === item.key && styles.ageGroupEmojiActive,
-                  ]}>
+                <View
+                  style={[
+                    styles.ageGroupIcon,
+                    ageGroup === item.key && styles.ageGroupIconActive,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.ageGroupEmoji,
+                      ageGroup === item.key && styles.ageGroupEmojiActive,
+                    ]}
+                  >
                     {item.emoji}
                   </Text>
                 </View>
                 <View style={styles.ageGroupTextContainer}>
-                  <Text style={[
-                    styles.ageGroupLabel,
-                    ageGroup === item.key && styles.ageGroupLabelActive,
-                  ]}>
+                  <Text
+                    style={[
+                      styles.ageGroupLabel,
+                      ageGroup === item.key && styles.ageGroupLabelActive,
+                    ]}
+                  >
                     {item.label}
                   </Text>
-                  <Text style={[
-                    styles.ageGroupDescription,
-                    ageGroup === item.key && styles.ageGroupDescriptionActive,
-                  ]}>
+                  <Text
+                    style={[
+                      styles.ageGroupDescription,
+                      ageGroup === item.key && styles.ageGroupDescriptionActive,
+                    ]}
+                  >
                     {item.description}
                   </Text>
                 </View>
@@ -569,13 +706,15 @@ const formatPhoneNumber = (text: string) => {
               Введите дату рождения, чтобы определить возрастную группу
             </Text>
           ) : (
-            <Text style={[
-              styles.ageHint,
-              ageGroup === 'baby' && styles.ageHintBaby,
-              ageGroup === 'toddler' && styles.ageHintToddler,
-              ageGroup === 'preschool' && styles.ageHintPreschool,
-            ]}>
-              {ageGroup === 'baby' 
+            <Text
+              style={[
+                styles.ageHint,
+                ageGroup === 'baby' && styles.ageHintBaby,
+                ageGroup === 'toddler' && styles.ageHintToddler,
+                ageGroup === 'preschool' && styles.ageHintPreschool,
+              ]}
+            >
+              {ageGroup === 'baby'
                 ? 'Период младенчества - важное время для сенсорного развития'
                 : ageGroup === 'toddler'
                 ? 'Возраст активного познания мира и развития речи'
@@ -595,23 +734,28 @@ const formatPhoneNumber = (text: string) => {
               onPress={() => setChildGender('boy')}
             >
               <LinearGradient
-                colors={childGender === 'boy' 
-                  ? ['#3B82F6', '#1D4ED8']
-                  : ['#F1F5F9', '#E2E8F0']
+                colors={
+                  childGender === 'boy'
+                    ? ['#3B82F6', '#1D4ED8']
+                    : ['#F1F5F9', '#E2E8F0']
                 }
                 style={styles.genderIcon}
               >
-                <Text style={[
-                  styles.genderEmoji,
-                  childGender === 'boy' && styles.genderEmojiActive,
-                ]}>
+                <Text
+                  style={[
+                    styles.genderEmoji,
+                    childGender === 'boy' && styles.genderEmojiActive,
+                  ]}
+                >
                   👦
                 </Text>
               </LinearGradient>
-              <Text style={[
-                styles.genderLabel,
-                childGender === 'boy' && styles.genderLabelActive,
-              ]}>
+              <Text
+                style={[
+                  styles.genderLabel,
+                  childGender === 'boy' && styles.genderLabelActive,
+                ]}
+              >
                 Мальчик
               </Text>
             </TouchableOpacity>
@@ -624,23 +768,28 @@ const formatPhoneNumber = (text: string) => {
               onPress={() => setChildGender('girl')}
             >
               <LinearGradient
-                colors={childGender === 'girl'
-                  ? ['#EC4899', '#DB2777']
-                  : ['#F1F5F9', '#E2E8F0']
+                colors={
+                  childGender === 'girl'
+                    ? ['#EC4899', '#DB2777']
+                    : ['#F1F5F9', '#E2E8F0']
                 }
                 style={styles.genderIcon}
               >
-                <Text style={[
-                  styles.genderEmoji,
-                  childGender === 'girl' && styles.genderEmojiActive,
-                ]}>
+                <Text
+                  style={[
+                    styles.genderEmoji,
+                    childGender === 'girl' && styles.genderEmojiActive,
+                  ]}
+                >
                   👧
                 </Text>
               </LinearGradient>
-              <Text style={[
-                styles.genderLabel,
-                childGender === 'girl' && styles.genderLabelActive,
-              ]}>
+              <Text
+                style={[
+                  styles.genderLabel,
+                  childGender === 'girl' && styles.genderLabelActive,
+                ]}
+              >
                 Девочка
               </Text>
             </TouchableOpacity>
@@ -693,24 +842,29 @@ const formatPhoneNumber = (text: string) => {
                 onPress={() => setHomeLanguage(lang.key as HomeLanguage)}
               >
                 <LinearGradient
-                  colors={homeLanguage === lang.key
-                    ? ['#8B5CF6', '#7C3AED']
-                    : ['#F8FAFC', '#F1F5F9']
+                  colors={
+                    homeLanguage === lang.key
+                      ? ['#8B5CF6', '#7C3AED']
+                      : ['#F8FAFC', '#F1F5F9']
                   }
                   style={styles.languageIcon}
                 >
                   <Text style={styles.languageEmoji}>{lang.emoji}</Text>
                 </LinearGradient>
-                <Text style={[
-                  styles.languageTitle,
-                  homeLanguage === lang.key && styles.languageTitleActive,
-                ]}>
+                <Text
+                  style={[
+                    styles.languageTitle,
+                    homeLanguage === lang.key && styles.languageTitleActive,
+                  ]}
+                >
                   {lang.title}
                 </Text>
-                <Text style={[
-                  styles.languageDesc,
-                  homeLanguage === lang.key && styles.languageDescActive,
-                ]}>
+                <Text
+                  style={[
+                    styles.languageDesc,
+                    homeLanguage === lang.key && styles.languageDescActive,
+                  ]}
+                >
                   {lang.desc}
                 </Text>
               </TouchableOpacity>
@@ -727,7 +881,6 @@ const formatPhoneNumber = (text: string) => {
         )}
       </View>
 
-      {/* Дополнительные дети */}
       <View style={styles.extraSection}>
         <View style={styles.extraHeader}>
           <View>
@@ -822,13 +975,120 @@ const formatPhoneNumber = (text: string) => {
                   </View>
                 </View>
 
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Пол</Text>
+                  <View style={styles.genderGrid}>
+                    <TouchableOpacity
+                      style={[
+                        styles.genderCard,
+                        child.gender === 'boy' && styles.genderCardActive,
+                      ]}
+                      onPress={() => updateExtraChild(child.id, 'gender', 'boy')}
+                    >
+                      <LinearGradient
+                        colors={
+                          child.gender === 'boy'
+                            ? ['#3B82F6', '#1D4ED8']
+                            : ['#F1F5F9', '#E2E8F0']
+                        }
+                        style={styles.genderIcon}
+                      >
+                        <Text
+                          style={[
+                            styles.genderEmoji,
+                            child.gender === 'boy' && styles.genderEmojiActive,
+                          ]}
+                        >
+                          👦
+                        </Text>
+                      </LinearGradient>
+                      <Text
+                        style={[
+                          styles.genderLabel,
+                          child.gender === 'boy' && styles.genderLabelActive,
+                        ]}
+                      >
+                        Мальчик
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.genderCard,
+                        child.gender === 'girl' && styles.genderCardActive,
+                      ]}
+                      onPress={() => updateExtraChild(child.id, 'gender', 'girl')}
+                    >
+                      <LinearGradient
+                        colors={
+                          child.gender === 'girl'
+                            ? ['#EC4899', '#DB2777']
+                            : ['#F1F5F9', '#E2E8F0']
+                        }
+                        style={styles.genderIcon}
+                      >
+                        <Text
+                          style={[
+                            styles.genderEmoji,
+                            child.gender === 'girl' && styles.genderEmojiActive,
+                          ]}
+                        >
+                          👧
+                        </Text>
+                      </LinearGradient>
+                      <Text
+                        style={[
+                          styles.genderLabel,
+                          child.gender === 'girl' && styles.genderLabelActive,
+                        ]}
+                      >
+                        Девочка
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Рост и вес (необязательно)</Text>
+                  <View style={styles.measurementRow}>
+                    <View style={styles.measurementContainer}>
+                      <TextInput
+                        style={styles.measurementInput}
+                        placeholder="Рост, см"
+                        placeholderTextColor="#94A3B8"
+                        value={child.height}
+                        onChangeText={(text) =>
+                          updateExtraChild(child.id, 'height', text)
+                        }
+                        keyboardType="numeric"
+                      />
+                      <Text style={styles.measurementUnit}>см</Text>
+                    </View>
+                    <View style={styles.measurementContainer}>
+                      <TextInput
+                        style={styles.measurementInput}
+                        placeholder="Вес, кг"
+                        placeholderTextColor="#94A3B8"
+                        value={child.weight}
+                        onChangeText={(text) =>
+                          updateExtraChild(child.id, 'weight', text)
+                        }
+                        keyboardType="numeric"
+                      />
+                      <Text style={styles.measurementUnit}>кг</Text>
+                    </View>
+                  </View>
+                </View>
+
                 {group && (
-                  <View style={[
-                    styles.ageGroupBadge,
-                    group === 'baby' && styles.ageGroupBadgeBaby,
-                    group === 'toddler' && styles.ageGroupBadgeToddler,
-                    group === 'preschool' && styles.ageGroupBadgePreschool,
-                  ]}>
+                  <View
+                    style={[
+                      styles.ageGroupBadge,
+                      group === 'baby' && styles.ageGroupBadgeBaby,
+                      group === 'toddler' && styles.ageGroupBadgeToddler,
+                      group === 'preschool' && styles.ageGroupBadgePreschool,
+                    ]}
+                  >
                     <Text style={styles.ageGroupBadgeText}>
                       {group === 'baby'
                         ? '👶 0-1 год'
@@ -846,7 +1106,6 @@ const formatPhoneNumber = (text: string) => {
     </ScrollView>
   );
 
-  // Слайд 3: родитель
   const renderParentSlide = () => {
     const passwordsMismatch =
       parentPassword.length > 0 &&
@@ -898,16 +1157,20 @@ const formatPhoneNumber = (text: string) => {
                   ]}
                   onPress={() => setParentRole(role.key as ParentRole)}
                 >
-                  <Text style={[
-                    styles.roleEmoji,
-                    parentRole === role.key && styles.roleEmojiActive,
-                  ]}>
+                  <Text
+                    style={[
+                      styles.roleEmoji,
+                      parentRole === role.key && styles.roleEmojiActive,
+                    ]}
+                  >
                     {role.emoji}
                   </Text>
-                  <Text style={[
-                    styles.roleLabel,
-                    parentRole === role.key && styles.roleLabelActive,
-                  ]}>
+                  <Text
+                    style={[
+                      styles.roleLabel,
+                      parentRole === role.key && styles.roleLabelActive,
+                    ]}
+                  >
                     {role.label}
                   </Text>
                 </TouchableOpacity>
@@ -948,19 +1211,18 @@ const formatPhoneNumber = (text: string) => {
             <Text style={styles.inputLabel}>Номер телефона</Text>
             <View style={styles.inputContainer}>
               <Text style={styles.inputIcon}>📱</Text>
-               <TextInput 
-               style={[styles.input, styles.inputWithIcon]}
-                          keyboardType="phone-pad" 
-                          placeholder="+7 000 000 00 00" // Добавим плейсхолдер и сюда
-                          placeholderTextColor="#94A3B8"
-                          value={parentPhone} 
-                          maxLength={16}
-                                          onChangeText={(text) => {
+              <TextInput
+                style={[styles.input, styles.inputWithIcon]}
+                keyboardType="phone-pad"
+                placeholder="+7 000 000 00 00"
+                placeholderTextColor="#94A3B8"
+                value={parentPhone}
+                maxLength={16}
+                onChangeText={(text) => {
                   const formatted = formatPhoneNumber(text);
                   setParentPhone(formatted);
                 }}
-                      />
-
+              />
             </View>
             <View style={styles.phoneHintContainer}>
               {parentPhone.length > 0 && !isPhoneValid && (
@@ -1045,9 +1307,8 @@ const formatPhoneNumber = (text: string) => {
     );
   };
 
-  // Слайд 4: обзор
   const renderOverviewSlide = () => (
-        <ScrollView 
+    <ScrollView
       style={styles.slideScroll}
       contentContainerStyle={styles.welcomeScrollContent}
       showsVerticalScrollIndicator={false}
@@ -1068,7 +1329,7 @@ const formatPhoneNumber = (text: string) => {
       <View style={styles.overviewCard}>
         <View style={styles.summarySection}>
           <Text style={styles.summaryTitle}>Ваш профиль</Text>
-          
+
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
               <Text style={styles.summaryLabel}>Ребёнок</Text>
@@ -1131,7 +1392,11 @@ const formatPhoneNumber = (text: string) => {
                   <Text style={styles.extraSummaryAge}>
                     {calculateAgeGroup(child.birthDay, child.birthMonth, child.birthYear)
                       ? (() => {
-                          const group = calculateAgeGroup(child.birthDay, child.birthMonth, child.birthYear);
+                          const group = calculateAgeGroup(
+                            child.birthDay,
+                            child.birthMonth,
+                            child.birthYear
+                          );
                           return group === 'baby'
                             ? '0-1 год'
                             : group === 'toddler'
@@ -1154,7 +1419,7 @@ const formatPhoneNumber = (text: string) => {
           </Text>
         </View>
       </View>
-    </ScrollView >
+    </ScrollView>
   );
 
   const renderSlideContent = (type: SlideType) => {
@@ -1241,7 +1506,7 @@ const formatPhoneNumber = (text: string) => {
             ]}
             onPress={handleNext}
             activeOpacity={0.8}
-            disabled={slideNeedsValidation && !isCurrentSlideValid}
+            disabled={submitting || (slideNeedsValidation && !isCurrentSlideValid)}
           >
             <LinearGradient
               colors={
@@ -1251,10 +1516,16 @@ const formatPhoneNumber = (text: string) => {
               }
               style={styles.nextButtonGradient}
             >
-              <Text style={styles.nextButtonText}>
-                {currentIndex === SLIDES.length - 1 ? 'НАЧАТЬ' : 'ДАЛЕЕ'}
-              </Text>
-              <Text style={styles.nextButtonArrow}>→</Text>
+              {submitting ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <Text style={styles.nextButtonText}>
+                    {currentIndex === SLIDES.length - 1 ? 'НАЧАТЬ' : 'ДАЛЕЕ'}
+                  </Text>
+                  <Text style={styles.nextButtonArrow}>→</Text>
+                </>
+              )}
             </LinearGradient>
           </TouchableOpacity>
 
@@ -1272,7 +1543,6 @@ const formatPhoneNumber = (text: string) => {
 
 export default OnboardingScreen;
 
-// СТИЛИ
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
@@ -1282,7 +1552,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // HEADER
   header: {
     paddingTop: Platform.OS === 'ios' ? 60 : 40,
     paddingBottom: 20,
@@ -1325,7 +1594,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // CONTENT
   slideContent: {
     flex: 1,
     paddingHorizontal: 24,
@@ -1366,7 +1634,6 @@ const styles = StyleSheet.create({
     fontSize: 40,
   },
 
-  // Welcome Slide
   welcomeIllustration: {
     alignItems: 'center',
     marginBottom: 32,
@@ -1387,11 +1654,10 @@ const styles = StyleSheet.create({
     fontSize: 50,
   },
   gradientText: {
-    backgroundImage: 'linear-gradient(135deg, #6366F1 0%, #8B5CF6 100%)',
-    backgroundClip: 'text',
+    color: '#8B5CF6',
+    fontWeight: '800',
   },
 
-  // Features
   featuresGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1436,7 +1702,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
-  // Welcome Steps
   welcomeInfoCard: {
     backgroundColor: '#F8FAFC',
     borderRadius: 24,
@@ -1502,7 +1767,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Form Elements
   formCard: {
     backgroundColor: '#FFFFFF',
     borderRadius: 28,
@@ -1558,7 +1822,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
-  // Date Input
   dateRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1587,7 +1850,6 @@ const styles = StyleSheet.create({
     flex: 1.5,
   },
 
-  // Age Group (non-clickable)
   ageGroupContainer: {
     marginBottom: 8,
   },
@@ -1683,7 +1945,6 @@ const styles = StyleSheet.create({
     color: '#8B5CF6',
   },
 
-  // Gender Cards
   genderGrid: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1730,7 +1991,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Measurement Inputs
   measurementRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1758,7 +2018,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Language Cards
   languageGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1813,7 +2072,6 @@ const styles = StyleSheet.create({
     color: '#8B5CF6',
   },
 
-  // Phone Input Validation
   phoneHintContainer: {
     marginTop: 8,
   },
@@ -1846,7 +2104,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Error & Hint Cards
   errorCard: {
     backgroundColor: '#FEE2E2',
     borderRadius: 16,
@@ -1872,7 +2129,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 
-  // Extra Children Section
   extraSection: {
     marginBottom: 32,
   },
@@ -1984,7 +2240,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Role Cards
   roleGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -2026,7 +2281,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Overview Slide
   overviewHeader: {
     alignItems: 'center',
     marginBottom: 32,
@@ -2144,7 +2398,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // Main Titles
   mainTitle: {
     fontSize: 28,
     fontWeight: '700',
@@ -2162,7 +2415,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
 
-  // FOOTER
   footer: {
     paddingHorizontal: 24,
     paddingBottom: Platform.OS === 'ios' ? 34 : 24,
@@ -2228,7 +2480,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Loading
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',

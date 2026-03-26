@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
-import React, { useState } from 'react';
+import { useState } from 'react';
 import {
   Alert,
   Dimensions,
@@ -12,75 +12,56 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { getMe, loginRequest } from '@/lib/api';
 
 const { width } = Dimensions.get('window');
 
 export default function LoginScreen() {
-  const [identifier, setIdentifier] = useState(''); // Email или Телефон
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
-    if (!identifier || !password) {
-      Alert.alert('Ошибка', 'Введите данные');
+    const email = identifier.trim().toLowerCase();
+
+    if (!email || !password) {
+      Alert.alert('Ошибка', 'Введите email и пароль');
       return;
     }
 
     setLoading(true);
+
     try {
-      // Загружаем данные из хранилища
-      const savedEmail = await AsyncStorage.getItem('parentEmail');
-      const savedPhone = await AsyncStorage.getItem('parentPhone');
-      const savedPassword = await AsyncStorage.getItem('parentPassword');
-      const savedName = await AsyncStorage.getItem('parentName');
-      const savedRole = await AsyncStorage.getItem('parentRole');
-      
-      const familyMembersRaw = await AsyncStorage.getItem('familyMembers');
-      const familyMembers = familyMembersRaw ? JSON.parse(familyMembersRaw) : [];
+      await loginRequest(email, password);
+      const me = await getMe();
 
-      // Очищаем вводимый текст от пробелов для сравнения с телефонами
-      const cleanIdentifier = identifier.replace(/\s/g, '');
-      const cleanSavedPhone = savedPhone ? savedPhone.replace(/\s/g, '') : '';
+      await AsyncStorage.multiSet([
+        ['isLoggedIn', 'true'],
+        ['activeUserRole', me.role || 'admin'],
+        ['currentSessionName', me.full_name || 'Пользователь'],
+        ['currentSessionRole', me.role || 'admin'],
+      ]);
 
-      // 1. Проверка основного родителя (Админа)
-      const isMainParent = (identifier === savedEmail || cleanIdentifier === cleanSavedPhone) && password === savedPassword;
+      router.replace('/(tabs)');
+    } catch (e: any) {
+      console.error('LOGIN ERROR:', e);
 
-      if (isMainParent) {
-        await AsyncStorage.multiSet([
-          ['isLoggedIn', 'true'],
-          ['activeUserRole', 'admin'],
-          ['currentSessionName', savedName || 'Родитель'],
-          ['currentSessionRole', savedRole || 'admin']
-        ]);
-        router.replace('/(tabs)');
-        return;
+      let message = 'Неверный email или пароль';
+
+      if (typeof e?.detail === 'string') {
+        message = e.detail;
+      } else if (Array.isArray(e?.detail) && e.detail.length > 0) {
+        message = String(e.detail[0]);
+      } else if (typeof e?.email?.[0] === 'string') {
+        message = e.email[0];
       }
 
-      // 2. Проверка родственников
-      const foundMember = familyMembers.find((member: any) => {
-        const cleanMemberPhone = member.phone.replace(/\s/g, '');
-        return (cleanMemberPhone === cleanIdentifier || member.email === identifier) && member.password === password;
-      });
-
-      if (foundMember) {
-        // Сохраняем данные сессии конкретного родственника
-        await AsyncStorage.multiSet([
-          ['isLoggedIn', 'true'],
-          ['activeUserRole', foundMember.role],
-          ['currentSessionName', foundMember.name],
-          ['currentSessionRole', foundMember.role]
-        ]);
-        router.replace('/(tabs)');
-      } else {
-        Alert.alert('Ошибка', 'Неверный логин или пароль');
-      }
-    } catch (e) {
-      console.error(e);
-      Alert.alert('Ошибка', 'Произошла ошибка при входе');
+      Alert.alert('Ошибка входа', message);
     } finally {
       setLoading(false);
     }
@@ -89,74 +70,97 @@ export default function LoginScreen() {
   return (
     <View style={styles.container}>
       <LinearGradient
-        colors={['#6366F1', '#8B5CF6', '#4F46E5']}
+        colors={['#667eea', '#764ba2', '#f093fb']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
         style={styles.background}
       />
 
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.keyboardView}
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
           <View style={styles.content}>
-            
             <View style={styles.headerSection}>
               <View style={styles.logoCircle}>
                 <Text style={styles.logoText}>ED</Text>
               </View>
+
               <Text style={styles.welcomeTitle}>С возвращением!</Text>
-              <Text style={styles.welcomeSubtitle}>Войдите в свой аккаунт ErteDamu</Text>
+              <Text style={styles.welcomeSubtitle}>
+                Войдите в свой аккаунт ErteDamu
+              </Text>
             </View>
 
             <View style={styles.formContainer}>
               <View style={styles.inputWrapper}>
-                <Ionicons name="person-outline" size={20} color="rgba(255,255,255,0.7)" />
+                <Ionicons name="mail-outline" size={22} color="#FFFFFF" />
                 <TextInput
                   style={styles.input}
-                  placeholder="E-mail или Телефон"
-                  placeholderTextColor="rgba(255,255,255,0.5)"
+                  placeholder="Email"
+                  placeholderTextColor="rgba(255,255,255,0.6)"
                   value={identifier}
                   onChangeText={setIdentifier}
                   autoCapitalize="none"
+                  keyboardType="email-address"
+                  editable={!loading}
                 />
               </View>
 
               <View style={styles.inputWrapper}>
-                <Ionicons name="lock-closed-outline" size={20} color="rgba(255,255,255,0.7)" />
+                <Ionicons name="lock-closed-outline" size={22} color="#FFFFFF" />
                 <TextInput
                   style={styles.input}
                   placeholder="Пароль"
-                  placeholderTextColor="rgba(255,255,255,0.5)"
+                  placeholderTextColor="rgba(255,255,255,0.6)"
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
+                  editable={!loading}
                 />
-                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
-                  <Ionicons 
-                    name={showPassword ? "eye-off-outline" : "eye-outline"} 
-                    size={20} 
-                    color="rgba(255,255,255,0.7)" 
+                <TouchableOpacity
+                  onPress={() => setShowPassword((prev) => !prev)}
+                  disabled={loading}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={22}
+                    color="#FFFFFF"
                   />
                 </TouchableOpacity>
               </View>
 
-              <TouchableOpacity 
-                style={styles.loginBtn} 
+              <TouchableOpacity
+                style={[styles.loginBtn, loading && styles.loginBtnDisabled]}
                 onPress={handleLogin}
-                activeOpacity={0.8}
+                disabled={loading}
               >
                 <Text style={styles.loginBtnText}>
                   {loading ? 'ВХОД...' : 'ВОЙТИ'}
                 </Text>
               </TouchableOpacity>
+              <TouchableOpacity
+  style={styles.registerBtn}
+  onPress={async () => {
+    await AsyncStorage.multiRemove([
+      'hasOnboarded',
+      'accessToken',
+      'refreshToken',
+      'isLoggedIn',
+      'activeUserRole',
+      'currentSessionName',
+      'currentSessionRole',
+    ]);
+    router.replace('/');
+  }}
+  disabled={loading}
+>
+  <Text style={styles.registerBtnText}>
+    ЗАРЕГИСТРИРОВАТЬСЯ
+  </Text>
+</TouchableOpacity>
             </View>
-
-            {/* <View style={styles.footer}>
-              <Text style={styles.footerText}>Нет аккаунта?</Text>
-              <TouchableOpacity onPress={() => router.push('/onboarding' as any)}>
-                <Text style={styles.signUpText}> Зарегистрироваться</Text>
-              </TouchableOpacity>
-            </View> */}
 
           </View>
         </KeyboardAvoidingView>
@@ -166,10 +170,22 @@ export default function LoginScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1 },
-  background: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0 },
-  safeArea: { flex: 1 },
-  keyboardView: { flex: 1 },
+  container: {
+    flex: 1,
+  },
+  background: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    bottom: 0,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  keyboardView: {
+    flex: 1,
+  },
   content: {
     flex: 1,
     paddingHorizontal: 30,
@@ -242,6 +258,9 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 5,
   },
+  loginBtnDisabled: {
+    opacity: 0.7,
+  },
   loginBtnText: {
     color: '#6366F1',
     fontSize: 16,
@@ -249,9 +268,11 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   footer: {
-    flexDirection: 'row',
+    flexDirection: width < 380 ? 'column' : 'row',
     justifyContent: 'center',
+    alignItems: 'center',
     marginTop: 40,
+    gap: 4,
   },
   footerText: {
     color: 'rgba(255,255,255,0.7)',
@@ -263,4 +284,20 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '800',
   },
+registerBtn: {
+  height: 60,
+  borderRadius: 18,
+  justifyContent: 'center',
+  alignItems: 'center',
+  marginTop: 10,
+  borderWidth: 2,
+  borderColor: '#FFFFFF',
+},
+
+registerBtnText: {
+  color: '#FFFFFF',
+  fontSize: 16,
+  fontWeight: '900',
+  letterSpacing: 1,
+},
 });

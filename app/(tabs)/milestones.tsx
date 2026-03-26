@@ -1,10 +1,8 @@
 // app/(tabs)/milestones.tsx
 
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useFocusEffect } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -20,14 +18,11 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AppHeader, { ChildChip } from '../../components/common/AppHeader';
 import AskAvaFab from '../../components/common/AskAvaFab';
 
-import { getMilestonesProgress, toggleMilestone } from '../../utils/storage';
+import { api, logoutRequest } from '@/lib/api';
 import { AgeGroup } from '../activities/data';
-import { MILESTONE_LIBRARY, MILESTONE_META, MilestoneCategory } from '../milestones/data';
+import { MILESTONE_META, MilestoneCategory } from '../milestones/data';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-const ACTIVE_CHILD_ID_KEY = 'activeChildId';
-const ACTIVE_CHILD_INDEX_KEY = 'activeChildIndex';
 
 const generateTimeline = () => {
   const timeline: Array<{ value: number; label: string; type: 'month' | 'year' }> = [];
@@ -40,14 +35,65 @@ const generateTimeline = () => {
 const TIMELINE_DATA = generateTimeline();
 const ITEM_ESTIMATED_WIDTH = 85;
 
-const calculateAgeInMonths = (mStr?: string | null, yStr?: string | null): number => {
-  const m = mStr ? parseInt(mStr, 10) : 0;
-  const y = yStr ? parseInt(yStr, 10) : 0;
-  if (!m || !y) return 0;
+type Child = {
+  id: number;
+  family: number;
+  first_name: string;
+  birth_date: string;
+  gender: 'male' | 'female';
+  is_primary: boolean;
+  created_at: string;
+  age_months: number;
+  latest_measurement: {
+    id: number;
+    height: string | null;
+    weight: string | null;
+    measured_at: string;
+    note: string | null;
+  } | null;
+};
 
-  const now = new Date();
-  const age = (now.getFullYear() - y) * 12 + (now.getMonth() + 1 - m);
-  return age < 1 ? 1 : age;
+type ActiveChildResponse = {
+  id: number;
+  user: number;
+  family: number;
+  active_child: Child | null;
+  updated_at: string;
+};
+
+type BackendMilestoneCategory = {
+  id: number;
+  name: string;
+  slug: string;
+};
+
+type BackendMilestone = {
+  id: number;
+  title: string;
+  description: string;
+  category: BackendMilestoneCategory | null;
+  min_age_months: number;
+  max_age_months: number;
+  is_active: boolean;
+};
+
+type BackendMilestoneProgressItem = {
+  id: number;
+  milestone: BackendMilestone;
+  is_completed: boolean;
+  confirmed_at: string | null;
+  note: string | null;
+};
+
+type MilestoneProgressResponse = {
+  child_id: number;
+  total: number;
+  completed: number;
+  percent: number;
+  items: Array<{
+    milestone: BackendMilestone;
+    progress: BackendMilestoneProgressItem | null;
+  }>;
 };
 
 const formatAgeLabel = (months: number): string => {
@@ -70,8 +116,27 @@ const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min)
 
 const MilestonesScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
-
+  const [progressItems, setProgressItems] = useState<
+  Array<{
+    milestone: {
+      id: number;
+      title: string;
+      description: string;
+      category: { id: number; name: string; slug: string } | null;
+      min_age_months: number;
+      max_age_months: number;
+      is_active: boolean;
+    };
+    progress: {
+      id: number;
+      is_completed: boolean;
+      confirmed_at: string | null;
+      note: string | null;
+    } | null;
+  }>
+>([]);
   const [childrenList, setChildrenList] = useState<ChildChip[]>([]);
+  const [childrenRaw, setChildrenRaw] = useState<Child[]>([]);
   const [activeChildId, setActiveChildId] = useState<string>('main');
   const [activeChildIndex, setActiveChildIndex] = useState(0);
 
@@ -81,105 +146,76 @@ const MilestonesScreen: React.FC = () => {
 
   const timelineScrollRef = useRef<ScrollView>(null);
 
-  // ✅ Грузим ВСЁ на каждый фокус (как у тебя в ArticlesScreen)
   const loadData = useCallback(async () => {
     try {
-      const entries = await AsyncStorage.multiGet([
-        'childName',
-        'childBirthMonth',
-        'childBirthYear',
-        'extraChildren',
-        'extraChilds', // на всякий, если где-то сохранили с таким ключом
-        ACTIVE_CHILD_ID_KEY,
-        ACTIVE_CHILD_INDEX_KEY,
+      const [childrenRes, activeRes] = await Promise.all([
+        api.get<Child[]>('/api/families/children/'),
+        api.get<ActiveChildResponse>('/api/families/active-child/'),
       ]);
 
-      const map = Object.fromEntries(entries.map(([k, v]) => [k, v]));
-
-      const mainMonths = calculateAgeInMonths(map.childBirthMonth, map.childBirthYear);
-      const mainGrp = getAgeGroupFromMonths(mainMonths);
-
-      const list: ChildChip[] = [
-        {
-          id: 'main',
-          name: map.childName || 'Ребёнок',
-          tag: formatAgeLabel(mainMonths),
-          ageGroup: mainGrp,
-          color: '#3B82F6',
-          // @ts-ignore
-          ageMonths: mainMonths,
-        },
-      ];
-
-      // --- EXTRA CHILDREN ---
-      const rawExtrasStr = map.extraChildren ?? map.extraChilds;
-      let extrasChanged = false;
-
-      if (rawExtrasStr) {
-        try {
-          const ex = JSON.parse(rawExtrasStr);
-          if (Array.isArray(ex)) {
-            const patched = ex.map((c: any, idx: number) => {
-              // если id нет — генерим и потом сохраним обратно (чтобы прогресс не ломался)
-              const hasId = c?.id !== undefined && c?.id !== null && String(c.id).length > 0;
-              if (!hasId) extrasChanged = true;
-
-              const id = hasId ? String(c.id) : `ex-${Date.now()}-${idx}`;
-              return { ...c, id };
-            });
-
-            // добавляем в childrenList
-            patched.forEach((c: any) => {
-              const age = calculateAgeInMonths(c.birthMonth, c.birthYear);
-              const g = getAgeGroupFromMonths(age);
-
-              list.push({
-                id: String(c.id),
-                name: c?.name ?? 'Ребёнок',
-                tag: formatAgeLabel(age),
-                ageGroup: g,
-                color: '#10B981',
-                // @ts-ignore
-                ageMonths: age,
-              });
-            });
-
-            // если мы добавили id — запишем обратно
-            if (extrasChanged) {
-              await AsyncStorage.setItem('extraChildren', JSON.stringify(patched));
-            }
-          }
-        } catch (e) {
-          // ignore parse
-        }
+      if (!childrenRes || childrenRes.length === 0) {
+        setChildrenList([]);
+        setChildrenRaw([]);
+        setCompletedIds(new Set());
+        setSelectedMonth(1);
+        setActiveChildId('main');
+        setActiveChildIndex(0);
+        return;
       }
+
+      setChildrenRaw(childrenRes);
+
+      const list: ChildChip[] = childrenRes.map((c) => {
+        const age = c.age_months || 1;
+        const g = getAgeGroupFromMonths(age);
+
+        return {
+          id: String(c.id),
+          name: c.first_name || 'Ребёнок',
+          tag: formatAgeLabel(age),
+          ageGroup: g,
+          color: c.is_primary ? '#3B82F6' : '#10B981',
+          // @ts-ignore
+          ageMonths: age,
+        };
+      });
 
       setChildrenList(list);
 
-      // --- Активный ребёнок (предпочитаем ID, иначе индекс) ---
-      const savedId = map[ACTIVE_CHILD_ID_KEY] as string | null;
-      const savedIndexRaw = map[ACTIVE_CHILD_INDEX_KEY] as string | null;
-
+      const backendActiveId = activeRes?.active_child?.id ? String(activeRes.active_child.id) : null;
       let idx = 0;
 
-      if (savedId) {
-        const byId = list.findIndex((c) => c.id === savedId);
+      if (backendActiveId) {
+        const byId = list.findIndex((c) => c.id === backendActiveId);
         idx = byId !== -1 ? byId : 0;
-      } else if (savedIndexRaw !== null) {
-        const n = Number(savedIndexRaw);
-        idx = Number.isFinite(n) ? clamp(n, 0, list.length - 1) : 0;
       }
+
+      idx = clamp(idx, 0, list.length - 1);
 
       const resolved = list[idx] ?? list[0];
       setActiveChildIndex(idx);
-      setActiveChildId(resolved?.id ?? 'main');
+      setActiveChildId(resolved?.id ?? String(childrenRes[0].id));
 
-      // месяц по активному ребёнку
       // @ts-ignore
       const ageMonths = resolved?.ageMonths || 1;
       setSelectedMonth(ageMonths < 1 ? 1 : ageMonths);
-    } catch (e) {
+    } catch (e: any) {
       console.warn(e);
+
+      if (e?.detail === 'Учетные данные не были предоставлены.') {
+        router.replace('/login');
+        return;
+      }
+
+      if (e?.detail === 'Семья не найдена.') {
+        setChildrenList([]);
+        setChildrenRaw([]);
+        setCompletedIds(new Set());
+        setSelectedMonth(1);
+        setActiveChildId('main');
+        setActiveChildIndex(0);
+        return;
+      }
     } finally {
       setLoading(false);
     }
@@ -191,7 +227,6 @@ const MilestonesScreen: React.FC = () => {
     }, [loadData])
   );
 
-  // если активный ребёнок меняется — синхронизируем выбранный месяц
   useEffect(() => {
     const child = childrenList[activeChildIndex];
     if (!child) return;
@@ -204,45 +239,91 @@ const MilestonesScreen: React.FC = () => {
     const child = childrenList[index];
     if (!child) return;
 
-    setActiveChildIndex(index);
-    setActiveChildId(child.id);
+    try {
+      setActiveChildIndex(index);
+      setActiveChildId(child.id);
 
-    await AsyncStorage.setItem(ACTIVE_CHILD_ID_KEY, child.id);
-    await AsyncStorage.setItem(ACTIVE_CHILD_INDEX_KEY, index.toString());
+      await api.post('/api/families/active-child/set/', {
+        child_id: Number(child.id),
+      });
+    } catch (e: any) {
+      console.warn(e);
+    }
   };
 
-  // прогресс
-  const fetchProgress = useCallback(async () => {
-    const child = childrenList[activeChildIndex];
-    if (!child?.id) return;
+const fetchProgress = useCallback(async () => {
+  const child = childrenList[activeChildIndex];
+  if (!child?.id) return;
 
-    const ids = await getMilestonesProgress(child.id);
-    setCompletedIds(new Set(ids));
-  }, [childrenList, activeChildIndex]);
+  try {
+    const progress = await api.get<MilestoneProgressResponse>(
+      `/api/milestones/children/${child.id}/progress/`
+    );
+
+    setProgressItems(progress?.items || []);
+
+    const ids = new Set(
+      (progress?.items || [])
+        .filter((item) => !!item.progress?.is_completed)
+        .map((item) => String(item.milestone.id))
+    );
+
+    setCompletedIds(ids);
+  } catch (e: any) {
+    console.warn(e);
+  }
+}, [childrenList, activeChildIndex]);
 
   useEffect(() => {
     fetchProgress();
   }, [fetchProgress]);
 
-  const milestonesList = useMemo(() => {
-    return MILESTONE_LIBRARY.filter(
-      (m) => m.category === activeCategory && m.month === selectedMonth
-    );
-  }, [activeCategory, selectedMonth]);
+const milestonesList = useMemo(() => {
+  return progressItems
+    .filter((item) => {
+      const slug = item.milestone.category?.slug;
+      const matchesCategory = slug === activeCategory;
 
-  const handleToggle = async (id: string) => {
-    const child = childrenList[activeChildIndex];
-    if (!child?.id) return;
+      const monthMatch =
+        selectedMonth >= item.milestone.min_age_months &&
+        selectedMonth <= item.milestone.max_age_months;
 
+      return matchesCategory && monthMatch;
+    })
+    .map((item) => ({
+      id: String(item.milestone.id),
+      title: item.milestone.title,
+      description: item.milestone.description,
+      progress: item.progress,
+    }));
+}, [progressItems, activeCategory, selectedMonth]);
+
+const handleToggle = async (id: string) => {
+  const child = childrenList[activeChildIndex];
+  if (!child?.id) return;
+
+  const backendMilestoneId = Number(id);
+  const isCurrentlyCompleted = completedIds.has(id);
+
+  try {
     const newSet = new Set(completedIds);
     if (newSet.has(id)) newSet.delete(id);
     else newSet.add(id);
-
     setCompletedIds(newSet);
-    await toggleMilestone(child.id, id);
-  };
 
-  // авто-скролл таймлайна
+    await api.post(`/api/milestones/${backendMilestoneId}/toggle/`, {
+      child_id: Number(child.id),
+      is_completed: !isCurrentlyCompleted,
+      note: !isCurrentlyCompleted ? 'Отмечено пользователем' : 'Снято пользователем',
+    });
+
+    await fetchProgress();
+  } catch (e: any) {
+    console.warn(e);
+    await fetchProgress();
+  }
+};
+
   useEffect(() => {
     if (selectedMonth > 0 && timelineScrollRef.current) {
       const index = TIMELINE_DATA.findIndex((item) => item.value === selectedMonth);
@@ -276,7 +357,13 @@ const MilestonesScreen: React.FC = () => {
         childrenList={childrenList}
         activeChildIndex={activeChildIndex}
         onChangeChild={handleChildChange}
-        onLogout={() => router.replace('/login')}
+        onLogout={async () => {
+          try {
+            await logoutRequest();
+          } finally {
+            router.replace('/login');
+          }
+        }}
       />
 
       <View style={styles.body}>

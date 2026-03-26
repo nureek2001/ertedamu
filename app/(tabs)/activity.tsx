@@ -1,7 +1,6 @@
 // app/(tabs)/activity.tsx
 
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -19,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import AppHeader, { ChildChip } from '../../components/common/AppHeader';
 import AskAvaFab from '../../components/common/AskAvaFab';
 
-import { getChildProgress } from '../../utils/storage';
+import { api, logoutRequest } from '@/lib/api';
 
 import {
   ACTIVITY_LIBRARY,
@@ -30,8 +29,7 @@ import {
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-const ACTIVE_CHILD_ID_KEY = 'activeChildId';
-const ACTIVE_CHILD_INDEX_KEY = 'activeChildIndex';
+const ITEM_ESTIMATED_WIDTH = 85;
 
 const generateTimeline = () => {
   const timeline: Array<{ value: number; label: string; type: 'month' | 'year' }> = [];
@@ -42,22 +40,56 @@ const generateTimeline = () => {
   return timeline;
 };
 const TIMELINE_DATA = generateTimeline();
-const ITEM_ESTIMATED_WIDTH = 85;
 
 const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
 
-const calculateAgeInMonths = (monthStr?: string | null, yearStr?: string | null): number => {
-  const month = monthStr ? parseInt(monthStr, 10) : NaN;
-  const year = yearStr ? parseInt(yearStr, 10) : NaN;
-  if (isNaN(month) || isNaN(year)) return 0;
+type Child = {
+  id: number;
+  family: number;
+  first_name: string;
+  birth_date: string;
+  gender: 'male' | 'female';
+  is_primary: boolean;
+  created_at: string;
+  age_months: number;
+  latest_measurement?: {
+    id: number;
+    height: string | null;
+    weight: string | null;
+    measured_at: string;
+    note: string | null;
+  } | null;
+};
 
-  const now = new Date();
-  const nowYear = now.getFullYear();
-  const nowMonth = now.getMonth() + 1;
+type ActiveChildResponse = {
+  id: number;
+  user: number;
+  family: number;
+  active_child: Child | null;
+  updated_at: string;
+};
 
-  let age = (nowYear - year) * 12 + (nowMonth - month);
-  if (age < 1) age = 1;
-  return age;
+type ActivityHistoryItem = {
+  id: number;
+  activity: {
+    id: number;
+    title: string;
+    slug: string;
+    description: string;
+    instructions: string | null;
+    category: {
+      id: number;
+      name: string;
+      slug: string;
+    } | null;
+    min_age_months: number;
+    max_age_months: number;
+    duration_minutes: number;
+    is_active: boolean;
+  };
+  difficulty: 'easy' | 'ok' | 'hard' | null;
+  note: string | null;
+  completed_at: string;
 };
 
 const formatAgeLabel = (months: number): string => {
@@ -103,91 +135,55 @@ const ActivityScreen: React.FC = () => {
 
   const timelineScrollRef = useRef<ScrollView>(null);
 
-  // ✅ Загружаем детей + активного ребёнка + прогресс НА КАЖДЫЙ ФОКУС
+  const fetchProgress = useCallback(async (childId: string) => {
+    try {
+      const history = await api.get<ActivityHistoryItem[]>(`/api/activities/children/${childId}/history/`);
+      const ids = new Set((history || []).map((p) => String(p.activity.id)));
+      setCompletedIds(ids);
+    } catch (e) {
+      console.warn('ACTIVITY PROGRESS ERROR:', e);
+      setCompletedIds(new Set());
+    }
+  }, []);
+
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      const entries = await AsyncStorage.multiGet([
-        'childName',
-        'childBirthMonth',
-        'childBirthYear',
-        'extraChildren',
-        'extraChilds', // на случай если где-то сохраняли с таким ключом
-        ACTIVE_CHILD_ID_KEY,
-        ACTIVE_CHILD_INDEX_KEY,
+      const [childrenRes, activeRes] = await Promise.all([
+        api.get<Child[]>('/api/families/children/'),
+        api.get<ActiveChildResponse>('/api/families/active-child/'),
       ]);
 
-      const map = Object.fromEntries(entries.map(([k, v]) => [k, v ?? null]));
-
-      // --- main child ---
-      const baseName = (map.childName as string | null)?.trim() || 'Ребёнок';
-      const mainAgeMonths = calculateAgeInMonths(map.childBirthMonth, map.childBirthYear);
-      const mainGroup = getAgeGroupFromMonths(mainAgeMonths);
-
-      const list: ChildChip[] = [{
-        id: 'main',
-        name: baseName,
-        tag: formatAgeLabel(mainAgeMonths),
-        ageGroup: mainGroup,
-        color: '#3B82F6',
-        // @ts-ignore
-        ageMonths: mainAgeMonths,
-      }];
-
-      // --- extra children ---
-      const rawExtrasStr = (map.extraChildren as string | null) ?? (map.extraChilds as string | null);
-      let extrasChanged = false;
-
-      if (rawExtrasStr) {
-        try {
-          const parsed = JSON.parse(rawExtrasStr);
-          if (Array.isArray(parsed)) {
-            // гарантируем id у каждого extra ребёнка (иначе ломается прогресс/переключение)
-            const patched = parsed.map((c: any, idx: number) => {
-              const hasId = c?.id !== undefined && c?.id !== null && String(c.id).length > 0;
-              if (!hasId) extrasChanged = true;
-              const id = hasId ? String(c.id) : `ex-${Date.now()}-${idx}`;
-              return { ...c, id };
-            });
-
-            patched.forEach((c: any, idx: number) => {
-              const age = calculateAgeInMonths(c.birthMonth, c.birthYear);
-              const grp = getAgeGroupFromMonths(age);
-
-              list.push({
-                id: String(c.id),
-                name: c?.name || `Ребёнок ${idx + 2}`,
-                tag: formatAgeLabel(age),
-                ageGroup: grp,
-                color: '#10B981',
-                // @ts-ignore
-                ageMonths: age,
-              });
-            });
-
-            if (extrasChanged) {
-              await AsyncStorage.setItem('extraChildren', JSON.stringify(patched));
-            }
-          }
-        } catch {
-          // ignore parse
-        }
+      if (!childrenRes || childrenRes.length === 0) {
+        setChildrenList([]);
+        setCompletedIds(new Set());
+        setSelectedMonth(1);
+        setActiveChildId('main');
+        setActiveChildIndex(0);
+        return;
       }
+
+      const list: ChildChip[] = childrenRes.map((c) => ({
+        id: String(c.id),
+        name: c.first_name || 'Ребёнок',
+        tag: formatAgeLabel(c.age_months || 1),
+        ageGroup: getAgeGroupFromMonths(c.age_months || 1),
+        color: c.is_primary ? '#3B82F6' : '#10B981',
+        // @ts-ignore
+        ageMonths: c.age_months || 1,
+      }));
 
       setChildrenList(list);
 
-      // --- determine active child (prefer ID) ---
-      const savedId = map[ACTIVE_CHILD_ID_KEY] as string | null;
-      const savedIndexRaw = map[ACTIVE_CHILD_INDEX_KEY] as string | null;
+      const backendActiveId = activeRes?.active_child?.id ? String(activeRes.active_child.id) : null;
 
       let idx = 0;
-      if (savedId) {
-        const byId = list.findIndex((c) => c.id === savedId);
+      if (backendActiveId) {
+        const byId = list.findIndex((c) => c.id === backendActiveId);
         idx = byId !== -1 ? byId : 0;
-      } else if (savedIndexRaw !== null) {
-        const n = Number(savedIndexRaw);
-        idx = Number.isFinite(n) ? clamp(n, 0, list.length - 1) : 0;
       }
+
+      idx = clamp(idx, 0, list.length - 1);
 
       const resolvedChild = list[idx] ?? list[0];
       const resolvedId = resolvedChild?.id ?? 'main';
@@ -195,61 +191,66 @@ const ActivityScreen: React.FC = () => {
       setActiveChildIndex(idx);
       setActiveChildId(resolvedId);
 
-      // синхронизируем сохранённые значения
-      await AsyncStorage.setItem(ACTIVE_CHILD_ID_KEY, resolvedId);
-      await AsyncStorage.setItem(ACTIVE_CHILD_INDEX_KEY, String(idx));
-
-      // месяц под активного ребёнка
       // @ts-ignore
       const ageMonths = resolvedChild?.ageMonths || 1;
       setSelectedMonth(ageMonths < 1 ? 1 : ageMonths);
 
-      // ✅ прогресс под активного ребёнка
-      if (resolvedId) {
-        const progress = await getChildProgress(resolvedId);
-        const ids = new Set((progress || []).map((p: any) => p.activityId));
-        setCompletedIds(ids);
-      } else {
-        setCompletedIds(new Set());
+      await fetchProgress(resolvedId);
+    } catch (e: any) {
+      console.warn('ACTIVITY LOAD ERROR:', e);
+
+      if (e?.detail === 'Учетные данные не были предоставлены.') {
+        router.replace('/login');
+        return;
       }
-    } catch (e) {
-      console.warn(e);
+
+      if (e?.detail === 'Семья не найдена.') {
+        setChildrenList([]);
+        setCompletedIds(new Set());
+        setSelectedMonth(1);
+        setActiveChildId('main');
+        setActiveChildIndex(0);
+        return;
+      }
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [fetchProgress]);
 
-  useFocusEffect(
-    useCallback(() => {
-      loadData();
-    }, [loadData])
-  );
-
-  // при смене ребёнка — обновляем месяц и прогресс
   useEffect(() => {
-    const child = childrenList[activeChildIndex];
-    if (!child?.id) return;
+      loadData();
+    }, [loadData]);
 
-    // @ts-ignore
-    const age = child.ageMonths || 1;
-    setSelectedMonth(age);
+    useFocusEffect(
+  useCallback(() => {
+    if (!activeChildId) return;
+    fetchProgress(activeChildId);
+  }, [activeChildId, fetchProgress])
+);
 
-    (async () => {
-      const progress = await getChildProgress(child.id);
-      const ids = new Set((progress || []).map((p: any) => p.activityId));
-      setCompletedIds(ids);
-    })();
-  }, [activeChildIndex, childrenList]);
+useEffect(() => {
+  const child = childrenList[activeChildIndex];
+  if (!child?.id) return;
+
+  fetchProgress(child.id);
+}, [activeChildIndex, childrenList, fetchProgress]);
 
   const handleChildChange = async (index: number) => {
     const child = childrenList[index];
     if (!child?.id) return;
 
-    setActiveChildIndex(index);
-    setActiveChildId(child.id);
+    try {
+      setActiveChildIndex(index);
+      setActiveChildId(child.id);
 
-    await AsyncStorage.setItem(ACTIVE_CHILD_ID_KEY, child.id);
-    await AsyncStorage.setItem(ACTIVE_CHILD_INDEX_KEY, index.toString());
+      await api.post('/api/families/active-child/set/', {
+        child_id: Number(child.id),
+      });
+
+      await fetchProgress(child.id);
+    } catch (e) {
+      console.warn('ACTIVE CHILD SWITCH ERROR:', e);
+    }
   };
 
   const activitiesForMonth = useMemo(() => {
@@ -264,10 +265,13 @@ const ActivityScreen: React.FC = () => {
   const currentRealAge = activeChild?.ageMonths || 1;
 
   const handleLogout = async () => {
-    router.replace('/login');
+    try {
+      await logoutRequest();
+    } finally {
+      router.replace('/login');
+    }
   };
 
-  // авто-скролл таймлайна
   useEffect(() => {
     if (selectedMonth > 0 && timelineScrollRef.current) {
       const index = TIMELINE_DATA.findIndex((item) => item.value === selectedMonth);
@@ -304,7 +308,6 @@ const ActivityScreen: React.FC = () => {
       />
 
       <View style={styles.body}>
-        {/* TIMELINE */}
         <View style={styles.timelineContainer}>
           <ScrollView
             ref={timelineScrollRef}
@@ -346,7 +349,6 @@ const ActivityScreen: React.FC = () => {
         </View>
 
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-          {/* Categories */}
           <View style={styles.categoriesSection}>
             <ScrollView
               horizontal
@@ -381,7 +383,6 @@ const ActivityScreen: React.FC = () => {
             </ScrollView>
           </View>
 
-          {/* Activities */}
           <View style={styles.activitiesSection}>
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>{currentMeta.label}</Text>
@@ -400,7 +401,7 @@ const ActivityScreen: React.FC = () => {
               </View>
             ) : (
               activitiesForMonth.map((activity) => {
-                const isCompleted = completedIds.has(activity.id);
+                const isCompleted = completedIds.has(String(activity.id));
 
                 return (
                   <TouchableOpacity

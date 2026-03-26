@@ -1,5 +1,4 @@
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
@@ -16,22 +15,153 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { api, logoutRequest } from '@/lib/api';
 import AppHeader, { ChildChip } from '../../components/common/AppHeader';
-import { CompletedActivity, getChildProgress, getMilestonesProgress } from '../../utils/storage';
 import { ACTIVITY_LIBRARY, ActivityCategory, CATEGORY_META } from '../activities/data';
 import { MILESTONE_LIBRARY, MILESTONE_META, MilestoneCategory } from '../milestones/data';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+// --- ТИПЫ BACKEND ---
+type Child = {
+    id: number;
+    family: number;
+    first_name: string;
+    birth_date: string;
+    gender: 'male' | 'female';
+    is_primary: boolean;
+    created_at: string;
+    age_months: number;
+    latest_measurement: {
+        id: number;
+        height: string | null;
+        weight: string | null;
+        measured_at: string;
+        note: string | null;
+    } | null;
+};
+
+type ActiveChildResponse = {
+    id: number;
+    user: number;
+    family: number;
+    active_child: Child | null;
+    updated_at: string;
+};
+
+type ScreeningTemplate = {
+    id: number;
+    title: string;
+    code: string;
+    template_type: string;
+    description: string | null;
+    min_age_months: number;
+    max_age_months: number;
+    version: string;
+    is_active: boolean;
+    cooldown_days: number;
+};
+
+type ScreeningAvailabilityItem = {
+    template: ScreeningTemplate;
+    available: boolean;
+    reason: string | null;
+};
+
+type ScreeningQuestion = {
+    id: number;
+    order: number;
+    text: string;
+    answer_type: string;
+    is_required: boolean;
+};
+
+type ScreeningAnswer = {
+    id: number;
+    question: ScreeningQuestion;
+    answer_value: string;
+};
+
+type ScreeningSession = {
+    id: number;
+    child: Child;
+    template: ScreeningTemplate;
+    status: string;
+    result_level: 'low' | 'medium' | 'high' | 'done' | 'unknown';
+    score: number;
+    target_age_months: number | null;
+    started_at: string;
+    completed_at: string | null;
+    notes: string | null;
+    answers?: ScreeningAnswer[];
+};
+
+type ActivityHistoryItem = {
+    id: number;
+    activity: {
+        id: number;
+        title: string;
+        slug: string;
+        description: string;
+        instructions: string | null;
+        category: {
+            id: number;
+            name: string;
+            slug: string;
+        } | null;
+        min_age_months: number;
+        max_age_months: number;
+        duration_minutes: number;
+        is_active: boolean;
+    };
+    difficulty: 'easy' | 'ok' | 'hard';
+    note: string | null;
+    completed_at: string;
+};
+
+type MilestoneCategoryResponse = {
+    id: number;
+    name: string;
+    slug: string;
+};
+
+type MilestoneResponse = {
+    id: number;
+    title: string;
+    description: string;
+    category: MilestoneCategoryResponse | null;
+    min_age_months: number;
+    max_age_months: number;
+    is_active: boolean;
+};
+
+type MilestoneProgressResponse = {
+    child_id: number;
+    total: number;
+    completed: number;
+    percent: number;
+    items: Array<{
+        milestone: MilestoneResponse;
+        progress: {
+            id: number;
+            milestone: MilestoneResponse;
+            is_completed: boolean;
+            confirmed_at: string | null;
+            note: string | null;
+        } | null;
+    }>;
+};
+
 // --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
 const formatAgeLabel = (months: number): string => {
-  if (months <= 0) return 'Малыш';
-  if (months < 12) return `${months} мес.`;
-  const years = Math.floor(months / 12);
-  const remainingMonths = months % 12;
-  if (remainingMonths === 0) return `${years} лет`;
-  return `${years} г. ${remainingMonths} мес.`;
+    if (months <= 0) return 'Малыш';
+    if (months < 12) return `${months} мес.`;
+    const years = Math.floor(months / 12);
+    const remainingMonths = months % 12;
+    if (remainingMonths === 0) return `${years} лет`;
+    return `${years} г. ${remainingMonths} мес.`;
 };
+
 // --- ПОЛНАЯ БАЗА ДАННЫХ ВОПРОСОВ И РЕКОМЕНДАЦИЙ (ДЛЯ ОТОБРАЖЕНИЯ В ПРОФИЛЕ) ---
 const EARLY_QUESTIONS_DB: Record<number, any[]> = {
     1: [
@@ -130,18 +260,27 @@ const calculateAgeInMonths = (mStr?: string | null, yStr?: string | null): numbe
     return age < 1 ? 1 : age;
 };
 
+const extractBirthMonthYear = (birthDate: string) => {
+    const [year, month] = birthDate.split('-');
+    return { birthMonth: month, birthYear: year };
+};
+
 const MyChildScreen: React.FC = () => {
-    const handleLogout = async () => { router.replace('/login'); };
     const insets = useSafeAreaInsets();
+
     const [loading, setLoading] = useState(true);
     const [refreshing, setRefreshing] = useState(false);
+
     const [childrenList, setChildrenList] = useState<ChildChip[]>([]);
     const [activeChildIndex, setActiveChildIndex] = useState(0);
     const [currentChildAge, setCurrentChildAge] = useState<number>(1);
+
     const [activeTab, setActiveTab] = useState<'activities' | 'milestones'>('activities');
-    const [completedActivities, setCompletedActivities] = useState<CompletedActivity[]>([]);
+
+    const [completedActivities, setCompletedActivities] = useState<ActivityHistoryItem[]>([]);
     const [completedMilestones, setCompletedMilestones] = useState<string[]>([]);
     const [confirmedStages, setConfirmedStages] = useState<number[]>([]);
+
     const [mchatStatus, setMchatStatus] = useState<any>(null);
     const [isScreeningAvailable, setIsScreeningAvailable] = useState(true);
 
@@ -150,70 +289,176 @@ const MyChildScreen: React.FC = () => {
     const [selectedStage, setSelectedStage] = useState<any>(null);
     const [testProgress, setTestProgress] = useState<string[]>([]);
 
+    const handleLogout = async () => {
+        try {
+            await logoutRequest();
+        } finally {
+            router.replace('/login');
+        }
+    };
+
     const loadData = useCallback(async () => {
         try {
-            const entries = await AsyncStorage.multiGet(['childName', 'childBirthMonth', 'childBirthYear', 'extraChildren', 'activeChildIndex']);
-            const map = Object.fromEntries(entries.map(([k, v]) => [k, v]));
-            let activeIdx = map.activeChildIndex ? parseInt(map.activeChildIndex) : 0;
-            setActiveChildIndex(activeIdx);
+            const [childrenRes, activeRes] = await Promise.all([
+                api.get<Child[]>('/api/families/children/'),
+                api.get<ActiveChildResponse>('/api/families/active-child/'),
+            ]);
 
-            const mainAge = calculateAgeInMonths(map.childBirthMonth, map.childBirthYear);
-            const mainList: ChildChip[] = [{
-                id: 'main', name: map.childName || 'Ребёнок', tag: formatAgeLabel(mainAge),
-                ageGroup: 'unknown', ageMonths: mainAge, color: '#3B82F6',
-            }];
-
-            if (map.extraChildren) {
-                const extra = JSON.parse(map.extraChildren);
-                extra.forEach((c: any) => {
-                    const extraAge = calculateAgeInMonths(c.birthMonth, c.birthYear);
-                    mainList.push({ id: c.id, name: c.name, tag: formatAgeLabel(extraAge), ageGroup: 'unknown', ageMonths: extraAge, color: '#3B82F6' });
-                });
+            if (!childrenRes || childrenRes.length === 0) {
+                setChildrenList([]);
+                setCompletedActivities([]);
+                setCompletedMilestones([]);
+                setConfirmedStages([]);
+                setMchatStatus(null);
+                setIsScreeningAvailable(true);
+                setCurrentChildAge(1);
+                return;
             }
+
+            const mainList: ChildChip[] = childrenRes.map((c) => ({
+                id: String(c.id),
+                name: c.first_name,
+                tag: formatAgeLabel(c.age_months || 1),
+                ageGroup: 'unknown',
+                ageMonths: c.age_months || 1,
+                color: '#3B82F6',
+            }));
+
             setChildrenList(mainList);
 
-            const currentChild = mainList[activeIdx] || mainList[0];
+            const activeChildId = activeRes?.active_child?.id
+                ? String(activeRes.active_child.id)
+                : String(childrenRes[0].id);
+
+            const foundIndex = mainList.findIndex((c) => c.id === activeChildId);
+            const resolvedIndex = foundIndex >= 0 ? foundIndex : 0;
+            setActiveChildIndex(resolvedIndex);
+
+            const currentChild = childrenRes[resolvedIndex] || childrenRes[0];
             const currentId = currentChild.id;
 
-            const lastDate = await AsyncStorage.getItem(`last_screening_date_${currentId}`);
-            if (lastDate) {
-                const d = new Date(lastDate);
-                const now = new Date();
-                setIsScreeningAvailable(!(d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear()));
-            } else { setIsScreeningAvailable(true); }
+            setCurrentChildAge(currentChild.age_months || 1);
 
-            const savedConfirmed = await AsyncStorage.getItem(`confirmed_stages_${currentId}`);
-            setConfirmedStages(savedConfirmed ? JSON.parse(savedConfirmed) : []);
-
-            const res = await AsyncStorage.getItem(`mchat_result_${currentId}`);
-            setMchatStatus(res ? JSON.parse(res) : null);
-            setCurrentChildAge(currentChild.ageMonths || 1);
-
-            const [actProgress, milProgress] = await Promise.all([
-                getChildProgress(currentId),
-                getMilestonesProgress(currentId)
+            const [historyRes, milestonesRes, availabilityRes] = await Promise.all([
+                api.get<ActivityHistoryItem[]>(`/api/activities/children/${currentId}/history/`),
+                api.get<MilestoneProgressResponse>(`/api/milestones/children/${currentId}/progress/`),
+                api.get<ScreeningAvailabilityItem[]>(`/api/screenings/children/${currentId}/availability/`),
             ]);
-            setCompletedActivities(actProgress);
-            setCompletedMilestones(milProgress);
-        } catch (error) { console.error(error); } 
-        finally { setLoading(false); setRefreshing(false); }
-    }, [activeChildIndex]);
+
+            setCompletedActivities(historyRes || []);
+
+            const completedMilestoneIds =
+                milestonesRes?.items
+                    ?.filter((item) => !!item.progress?.is_completed)
+                    .map((item) => String(item.milestone.id)) || [];
+            setCompletedMilestones(completedMilestoneIds);
+
+            const confirmed = milestonesRes?.items
+                ?.filter((item) => !!item.progress?.is_completed)
+                .map((item) => item.milestone.min_age_months)
+                .filter((value, index, arr) => arr.indexOf(value) === index) || [];
+            setConfirmedStages(confirmed);
+
+            let latestScreening: ScreeningSession | null = null;
+            try {
+                latestScreening = await api.get<ScreeningSession>(`/api/screenings/children/${currentId}/latest/`);
+            } catch (e: any) {
+                if (e?.detail !== 'Завершённых скринингов пока нет.') {
+                    throw e;
+                }
+            }
+
+            const mchatAvailability = availabilityRes?.find((item) => item.template?.code === 'mchat');
+            const earlyAvailability = availabilityRes?.find((item) => item.template?.code === 'early_dev');
+
+            if (currentChild.age_months >= 16) {
+                setIsScreeningAvailable(!!mchatAvailability?.available);
+            } else {
+                setIsScreeningAvailable(!!earlyAvailability?.available);
+            }
+
+            if (latestScreening) {
+                if (latestScreening.template?.code === 'mchat') {
+                    setMchatStatus({
+                        type: 'mchat',
+                        status: latestScreening.result_level,
+                        score: latestScreening.score,
+                        date: latestScreening.completed_at || latestScreening.started_at,
+                        raw: latestScreening,
+                    });
+                } else if (latestScreening.template?.code === 'early_dev') {
+                    const answersMap: Record<number, string> = {};
+                    (latestScreening.answers || []).forEach((answer) => {
+                        if (answer?.question?.id) {
+                            answersMap[answer.question.id] = answer.answer_value;
+                        }
+                    });
+
+                    setMchatStatus({
+                        type: 'early',
+                        targetAge: latestScreening.target_age_months || currentChild.age_months,
+                        date: latestScreening.completed_at || latestScreening.started_at,
+                        answers: answersMap,
+                        raw: latestScreening,
+                    });
+                } else {
+                    setMchatStatus(null);
+                }
+            } else {
+                setMchatStatus(null);
+            }
+        } catch (error: any) {
+            console.error('MY CHILD LOAD ERROR:', error);
+
+            if (error?.detail === 'Учетные данные не были предоставлены.') {
+                router.replace('/login');
+                return;
+            }
+
+            if (error?.detail === 'Семья не найдена.') {
+                setChildrenList([]);
+                setCompletedActivities([]);
+                setCompletedMilestones([]);
+                setConfirmedStages([]);
+                setMchatStatus(null);
+                setIsScreeningAvailable(true);
+                setCurrentChildAge(1);
+                return;
+            }
+
+            Alert.alert('Ошибка', error?.detail || 'Не удалось загрузить профиль ребёнка');
+        } finally {
+            setLoading(false);
+            setRefreshing(false);
+        }
+    }, []);
 
     useFocusEffect(useCallback(() => { loadData(); }, [loadData]));
 
     const handleChildChange = async (index: number) => {
-        setActiveChildIndex(index);
-        await AsyncStorage.setItem('activeChildIndex', index.toString());
+        try {
+            if (!childrenList[index]) return;
+
+            setActiveChildIndex(index);
+
+            await api.post('/api/families/active-child/set/', {
+                child_id: Number(childrenList[index].id),
+            });
+
+            await loadData();
+        } catch (error: any) {
+            console.error('ACTIVE CHILD CHANGE ERROR:', error);
+            Alert.alert('Ошибка', error?.detail || 'Не удалось переключить ребёнка');
+        }
     };
 
-    const screeningInfo = currentChildAge >= 16 
+    const screeningInfo = currentChildAge >= 16
         ? { title: "Скрининг M-CHAT-R", sub: "Риск аутизма (16-30 мес)", path: "/screening", icon: "shield-checkmark" }
         : { title: "Скрининг развития", sub: `Навыки для ${currentChildAge} мес.`, path: "/screening_early", icon: "trending-up" };
 
-    // --- РЕНДЕРИНГ РЕЗУЛЬТАТОВ РАННЕГО СКРИНИНГА ---
     const renderEarlyResults = () => {
         if (!mchatStatus || mchatStatus.type !== 'early' || !mchatStatus.answers) return null;
-        
+
         const targetAge = mchatStatus.targetAge;
         const questions = EARLY_QUESTIONS_DB[targetAge] || [];
 
@@ -253,14 +498,17 @@ const MyChildScreen: React.FC = () => {
     const handleCompleteTest = async () => {
         const stageMonths = selectedStage.m;
         if (testProgress.length === STAGE_TESTS[stageMonths].items.length) {
-            if (confirmedStages.includes(stageMonths)) { setIsTestVisible(false); return; }
-            const currentId = childrenList[activeChildIndex].id;
+            if (confirmedStages.includes(stageMonths)) {
+                setIsTestVisible(false);
+                return;
+            }
             const newConfirmed = [...new Set([...confirmedStages, stageMonths])];
-            await AsyncStorage.setItem(`confirmed_stages_${currentId}`, JSON.stringify(newConfirmed));
             setConfirmedStages(newConfirmed);
             Alert.alert("Поздравляем!", `Этап "${selectedStage.title}" подтвержден.`);
             setIsTestVisible(false);
-        } else { Alert.alert("Внимание", "Отметьте все пункты."); }
+        } else {
+            Alert.alert("Внимание", "Отметьте все пункты.");
+        }
     };
 
     const renderJourneyMap = () => {
@@ -328,7 +576,7 @@ const MyChildScreen: React.FC = () => {
     };
 
     const activityStats = (Object.keys(CATEGORY_META) as ActivityCategory[]).map(cat => {
-        const done = completedActivities.filter(ca => ACTIVITY_LIBRARY.find(a => a.id === ca.activityId)?.category === cat).length;
+        const done = completedActivities.filter(ca => ACTIVITY_LIBRARY.find(a => a.id === ca.activity.id)?.category === cat).length;
         const target = ACTIVITY_LIBRARY.filter(a => a.category === cat && a.minMonths <= currentChildAge).length;
         return { key: cat, meta: CATEGORY_META[cat], percent: Math.min(Math.round((done / (target || 1)) * 100), 100) };
     });
@@ -343,18 +591,35 @@ const MyChildScreen: React.FC = () => {
 
     return (
         <SafeAreaView style={styles.screen} edges={['top']}>
-            <AppHeader childrenList={childrenList} activeChildIndex={activeChildIndex} onChangeChild={handleChildChange} onLogout={handleLogout}/>
+            <AppHeader childrenList={childrenList} activeChildIndex={activeChildIndex} onChangeChild={handleChildChange} onLogout={handleLogout} />
             <ScrollView contentContainerStyle={styles.scrollContent} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} />}>
-                
+
                 {renderJourneyMap()}
 
                 <View style={styles.sectionHeader}><Text style={styles.sectionTitle}>Здоровье и тесты</Text></View>
-                
-                <TouchableOpacity 
-                    style={[styles.riskCard, !isScreeningAvailable && styles.riskCardDisabled]} 
-                    onPress={() => isScreeningAvailable ? router.push({ pathname: screeningInfo.path as any, params: { childId: childrenList[activeChildIndex].id } }) : Alert.alert("Тест пройден", "Скрининг можно проводить раз в месяц.")}
+
+                <TouchableOpacity
+                    style={[styles.riskCard, !isScreeningAvailable && styles.riskCardDisabled]}
+                    onPress={() => childrenList.length === 0
+                        ? Alert.alert('Внимание', 'Добавьте профиль ребёнка')
+                        : isScreeningAvailable
+                            ? router.push({ pathname: screeningInfo.path as any, params: { childId: childrenList[activeChildIndex].id } })
+                            : Alert.alert("Тест пройден", "Скрининг можно проводить раз в месяц.")}
                 >
-                    <LinearGradient colors={!isScreeningAvailable ? (mchatStatus?.type === 'early' ? ['#6366F1', '#4F46E5'] : (mchatStatus?.status === 'high' ? ['#EF4444', '#B91C1C'] : mchatStatus?.status === 'medium' ? ['#F59E0B', '#D97706'] : ['#10B981', '#059669'])) : ['#6366F1', '#4F46E5']} style={styles.riskIconContainer}>
+                    <LinearGradient
+                        colors={
+                            !isScreeningAvailable
+                                ? (mchatStatus?.type === 'early'
+                                    ? ['#6366F1', '#4F46E5']
+                                    : (mchatStatus?.status === 'high'
+                                        ? ['#EF4444', '#B91C1C']
+                                        : mchatStatus?.status === 'medium'
+                                            ? ['#F59E0B', '#D97706']
+                                            : ['#10B981', '#059669']))
+                                : ['#6366F1', '#4F46E5']
+                        }
+                        style={styles.riskIconContainer}
+                    >
                         <Ionicons name={!isScreeningAvailable ? "stats-chart" : screeningInfo.icon as any} size={24} color="#FFF" />
                     </LinearGradient>
                     <View style={{ flex: 1, marginLeft: 16 }}>
@@ -372,13 +637,11 @@ const MyChildScreen: React.FC = () => {
                             </View>
                         ) : (<Text style={styles.riskSub}>{screeningInfo.sub}</Text>)}
                     </View>
-                    <View style={styles.lockInfo}>{!isScreeningAvailable && <Ionicons name="lock-closed" size={16} color="#94A3B8" />}<Ionicons name="chevron-forward" size={20} color="#94A3B8" style={{marginLeft: 4}} /></View>
+                    <View style={styles.lockInfo}>{!isScreeningAvailable && <Ionicons name="lock-closed" size={16} color="#94A3B8" />}<Ionicons name="chevron-forward" size={20} color="#94A3B8" style={{ marginLeft: 4 }} /></View>
                 </TouchableOpacity>
 
-                {/* БЛОК РЕЗУЛЬТАТОВ ДЛЯ РАННЕГО СКРИНИНГА */}
                 {renderEarlyResults()}
 
-                {/* БЛОК РЕКОМЕНДАЦИЙ ДЛЯ M-CHAT */}
                 {!isScreeningAvailable && mchatStatus && mchatStatus.type !== 'early' && (
                     <View style={[styles.recommendationCard, { backgroundColor: MCHAT_RECOMMENDATIONS[mchatStatus.status as keyof typeof MCHAT_RECOMMENDATIONS].bg }]}>
                         <View style={styles.recommendationHeader}>
@@ -410,7 +673,7 @@ const MyChildScreen: React.FC = () => {
                         <View style={styles.grid}>
                             {activityStats.map((item) => (
                                 <View key={item.key} style={styles.gridItem}>
-                                    <View style={[styles.itemIcon, { backgroundColor: item.meta.gradient[0] + '20' }]}><Text style={{fontSize: 20}}>{item.meta.emoji}</Text></View>
+                                    <View style={[styles.itemIcon, { backgroundColor: item.meta.gradient[0] + '20' }]}><Text style={{ fontSize: 20 }}>{item.meta.emoji}</Text></View>
                                     <Text style={styles.itemName}>{item.meta.label}</Text>
                                     <Text style={styles.itemPercent}>{item.percent}%</Text>
                                     <View style={styles.miniBar}><View style={[styles.miniBarFill, { width: `${item.percent}%`, backgroundColor: item.meta.gradient[0] }]} /></View>
@@ -426,7 +689,7 @@ const MyChildScreen: React.FC = () => {
                         </LinearGradient>
                         {milestoneStats.map((item) => (
                             <View key={item.key} style={styles.milestoneRow}>
-                                <View style={[styles.milestoneIcon, { backgroundColor: item.meta.color }]}><Text style={{fontSize: 18}}>{item.meta.emoji}</Text></View>
+                                <View style={[styles.milestoneIcon, { backgroundColor: item.meta.color }]}><Text style={{ fontSize: 18 }}>{item.meta.emoji}</Text></View>
                                 <View style={{ flex: 1, marginLeft: 12 }}>
                                     <Text style={styles.milestoneName}>{item.meta.label}</Text>
                                     <View style={styles.milestoneBar}><View style={[styles.milestoneBarFill, { width: `${item.percent}%`, backgroundColor: item.meta.color }]} /></View>
@@ -438,7 +701,6 @@ const MyChildScreen: React.FC = () => {
                 )}
             </ScrollView>
 
-            {/* Модалки Календаря и Тестов */}
             <Modal visible={isTestVisible} transparent animationType="fade">
                 <View style={styles.modalOverlay}>
                     <View style={styles.modalContent}>
@@ -485,13 +747,13 @@ const MyChildScreen: React.FC = () => {
                                     <View style={[styles.timelineDot, isPast && styles.dotPast, isCurrent && styles.dotCurrent]}>{isPast && <Ionicons name="checkmark" size={12} color="#FFF" />}</View>
                                     <View style={[styles.enhancedHistoryCard, isCurrent && styles.cardCurrentActive, isPast && styles.cardPast]}>
                                         {isCurrent && (
-                                            <LinearGradient colors={['#6366F1', '#818CF8']} start={{x:0, y:0}} end={{x:1, y:0}} style={styles.currentBadgeGradient}><Text style={styles.currentBadgeText}>ТЕКУЩИЙ ЭТАП</Text></LinearGradient>
+                                            <LinearGradient colors={['#6366F1', '#818CF8']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.currentBadgeGradient}><Text style={styles.currentBadgeText}>ТЕКУЩИЙ ЭТАП</Text></LinearGradient>
                                         )}
-                                        <Text style={[styles.historyCardMonth, isCurrent && {color: '#6366F1'}]}>{data.title}</Text>
+                                        <Text style={[styles.historyCardMonth, isCurrent && { color: '#6366F1' }]}>{data.title}</Text>
                                         <View style={styles.reminderItemsContainer}>
                                             {data.items.map((it, i) => (
                                                 <View key={i} style={styles.enhancedReminderRow}>
-                                                    <View style={[styles.miniDot, {backgroundColor: isCurrent ? '#6366F1' : '#CBD5E1'}]} />
+                                                    <View style={[styles.miniDot, { backgroundColor: isCurrent ? '#6366F1' : '#CBD5E1' }]} />
                                                     <Text style={styles.historyCardText}>{it}</Text>
                                                 </View>
                                             ))}
@@ -617,7 +879,6 @@ const styles = StyleSheet.create({
     historyCardMonth: { fontSize: 17, fontWeight: '800', color: '#1E293B' },
     historyCardText: { flex: 1, fontSize: 14, color: '#475569', lineHeight: 20, fontWeight: '500' },
 
-    // Дополнительные стили для результатов
     resultsCard: { backgroundColor: '#FFF', marginHorizontal: 24, padding: 20, borderRadius: 24, marginTop: -10, marginBottom: 20, borderWidth: 1, borderColor: '#F1F5F9' },
     resultsHeader: { flexDirection: 'row', alignItems: 'center', marginBottom: 15, borderBottomWidth: 1, borderBottomColor: '#F8FAFC', paddingBottom: 10 },
     resultsTitle: { fontSize: 14, fontWeight: '800', color: '#1E293B', marginLeft: 8 },
