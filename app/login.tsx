@@ -49,17 +49,8 @@ export default function LoginScreen() {
 
       router.replace('/(tabs)');
     } catch (e: any) {
-      console.error('LOGIN ERROR:', e);
 
       let message = 'Неверный email или пароль';
-
-      if (typeof e?.detail === 'string') {
-        message = e.detail;
-      } else if (Array.isArray(e?.detail) && e.detail.length > 0) {
-        message = String(e.detail[0]);
-      } else if (typeof e?.email?.[0] === 'string') {
-        message = e.email[0];
-      }
 
       Alert.alert('Ошибка входа', message);
     } finally {

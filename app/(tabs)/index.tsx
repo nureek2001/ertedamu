@@ -1,10 +1,13 @@
-// app/(tabs)/index.tsx
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import {
     ActivityIndicator,
+    Alert,
+    Image,
     RefreshControl,
     ScrollView,
     StyleSheet,
@@ -125,11 +128,6 @@ type MilestoneProgressResponse = {
     }>;
 };
 
-type DailyStatusResponse = {
-    mood?: string | null;
-    routine?: Record<string, boolean>;
-};
-
 const formatAgeLabel = (months: number): string => {
     if (months <= 0) return 'Малыш';
     if (months < 12) return `${months} мес.`;
@@ -165,6 +163,7 @@ const HomeScreen: React.FC = () => {
 
     const [selectedMood, setSelectedMood] = useState<string | null>(null);
     const [routineState, setRoutineState] = useState<Record<string, boolean>>({});
+    const [dailyPhotoUri, setDailyPhotoUri] = useState<string | null>(null);
 
     const [dailyActivity, setDailyActivity] = useState<any>(null);
     const [isDailyDone, setIsDailyDone] = useState(false);
@@ -179,30 +178,94 @@ const HomeScreen: React.FC = () => {
 
     const getTodayKey = () => new Date().toISOString().split('T')[0];
 
-    const saveDailyStatus = async (payload: Partial<DailyStatusResponse>) => {
-        const activeChild = childrenList[activeChildIndex];
-        if (!activeChild?.id) return;
+    const getLocalStorageKey = (
+        childId: string,
+        type: 'mood' | 'routine' | 'photo'
+    ) => {
+        return `daily_${childId}_${getTodayKey()}_${type}`;
+    };
 
+    const saveLocalDailyData = async (
+        childId: string,
+        type: 'mood' | 'routine' | 'photo',
+        value: string
+    ) => {
         try {
-            await api.post('/api/families/daily-status/', {
-                child_id: Number(activeChild.id),
-                date: getTodayKey(),
-                ...payload,
-            });
+            await AsyncStorage.setItem(getLocalStorageKey(childId, type), value);
         } catch (e) {
-            console.warn(e);
+            console.warn('LOCAL DAILY SAVE ERROR:', e);
+        }
+    };
+
+    const loadLocalDailyData = async (childId: string) => {
+        try {
+            const [moodRes, routineRes, photoRes] = await AsyncStorage.multiGet([
+                getLocalStorageKey(childId, 'mood'),
+                getLocalStorageKey(childId, 'routine'),
+                getLocalStorageKey(childId, 'photo'),
+            ]);
+
+            setSelectedMood(moodRes[1] || null);
+            setRoutineState(routineRes[1] ? JSON.parse(routineRes[1]) : {});
+            setDailyPhotoUri(photoRes[1] || null);
+        } catch (e) {
+            console.warn('LOCAL DAILY LOAD ERROR:', e);
+            setSelectedMood(null);
+            setRoutineState({});
+            setDailyPhotoUri(null);
         }
     };
 
     const toggleRoutine = async (id: string) => {
+        const childId = childrenList[activeChildIndex]?.id;
+        if (!childId) return;
+
         const newState = { ...routineState, [id]: !routineState[id] };
         setRoutineState(newState);
-        await saveDailyStatus({ routine: newState });
+        await saveLocalDailyData(childId, 'routine', JSON.stringify(newState));
     };
 
     const handleMoodSelect = async (moodId: string) => {
+        const childId = childrenList[activeChildIndex]?.id;
+        if (!childId) return;
+
         setSelectedMood(moodId);
-        await saveDailyStatus({ mood: moodId });
+        await saveLocalDailyData(childId, 'mood', moodId);
+    };
+
+    const handleTakePhoto = async () => {
+        const childId = childrenList[activeChildIndex]?.id;
+        if (!childId) return;
+
+        try {
+            const permission = await ImagePicker.requestCameraPermissionsAsync();
+
+            if (!permission.granted) {
+                Alert.alert('Нет доступа', 'Разрешите доступ к камере.');
+                return;
+            }
+
+            const result = await ImagePicker.launchCameraAsync({
+                mediaTypes: ImagePicker.MediaTypeOptions.Images,
+                allowsEditing: true,
+                quality: 0.8,
+            });
+
+            if (result.canceled) return;
+
+            const uri = result.assets?.[0]?.uri;
+            if (!uri) return;
+
+            setDailyPhotoUri(uri);
+            await saveLocalDailyData(childId, 'photo', uri);
+        } catch (e) {
+            console.warn('PHOTO ERROR:', e);
+            Alert.alert('Ошибка', 'Не удалось сделать фото');
+        }
+    };
+
+    const handleRetakePhoto = async () => {
+        await handleTakePhoto();
     };
 
     const loadData = useCallback(async () => {
@@ -220,6 +283,7 @@ const HomeScreen: React.FC = () => {
                 setStats({ activities: 0, milestones: 0 });
                 setSelectedMood(null);
                 setRoutineState({});
+                setDailyPhotoUri(null);
                 setDailyActivity(null);
                 setIsDailyDone(false);
                 return;
@@ -256,24 +320,17 @@ const HomeScreen: React.FC = () => {
             const currentChildId = currentChildFull.id;
             const currentAgeMonths = currentChildFull.ageMonths || 0;
 
+            await loadLocalDailyData(currentChildId);
+
             const [actProgress, milProgress] = await Promise.all([
                 api.get<ActivityHistoryItem[]>(`/api/activities/children/${currentChildId}/history/`),
                 api.get<MilestoneProgressResponse>(`/api/milestones/children/${currentChildId}/progress/`),
             ]);
 
             setStats({
-                activities: actProgress?.length || 0,
+                activities: Array.isArray(actProgress) ? actProgress.length : 0,
                 milestones: milProgress?.completed || 0,
             });
-
-            try {
-                const daily = await api.get<DailyStatusResponse>(`/api/families/daily-status/?child_id=${currentChildId}&date=${getTodayKey()}`);
-                setSelectedMood(daily?.mood || null);
-                setRoutineState(daily?.routine || {});
-            } catch {
-                setSelectedMood(null);
-                setRoutineState({});
-            }
 
             const suitableActivities = ACTIVITY_LIBRARY.filter(a => (a as any).minMonths <= currentAgeMonths);
 
@@ -285,7 +342,7 @@ const HomeScreen: React.FC = () => {
 
                 setDailyActivity(selected);
 
-                const isDone = (actProgress || []).some((a) => String(a.activity.id) === String((selected as any).id));
+                const isDone = (actProgress || []).some((a) => String(a.activity.slug) === String((selected as any).id));
                 setIsDailyDone(isDone);
             } else {
                 setDailyActivity(null);
@@ -305,6 +362,7 @@ const HomeScreen: React.FC = () => {
                 setStats({ activities: 0, milestones: 0 });
                 setSelectedMood(null);
                 setRoutineState({});
+                setDailyPhotoUri(null);
                 setDailyActivity(null);
                 setIsDailyDone(false);
                 return;
@@ -496,18 +554,50 @@ const HomeScreen: React.FC = () => {
 
                 <View style={styles.sectionContainer}>
                     <Text style={styles.sectionTitle}>Фото-челлендж</Text>
-                    <TouchableOpacity style={styles.photoCard} activeOpacity={0.8}>
-                        <View style={styles.photoDashedBorder}>
-                            <View style={styles.photoContent}>
-                                <View style={[styles.photoIconCircle, { backgroundColor: '#FCE7F3' }]}><Ionicons name="camera" size={24} color="#DB2777" /></View>
-                                <View style={{ flex: 1 }}>
-                                    <Text style={styles.photoTitle}>{PHOTO_CHALLENGE.title}</Text>
-                                    <Text style={styles.photoDesc}>{PHOTO_CHALLENGE.desc}</Text>
+
+                    {dailyPhotoUri ? (
+    <View style={styles.photoPreviewCard}>
+        <Image source={{ uri: dailyPhotoUri }} style={styles.photoPreviewImage} />
+
+        <LinearGradient
+            colors={['rgba(255,255,255,0)', 'rgba(255,240,247,0.95)']}
+            style={styles.photoPreviewOverlay}
+        >
+            <View style={styles.photoBadge}>
+                <Ionicons name="sparkles" size={16} color="#DB2777" />
+                <Text style={styles.photoBadgeText}>Фото дня</Text>
+            </View>
+        </LinearGradient>
+
+        <View style={styles.photoPreviewFooter}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+                <Text style={styles.photoTitle}>{PHOTO_CHALLENGE.title}</Text>
+                <Text style={styles.photoSavedText}>Какое классное фото получилось 📸</Text>
+                <Text style={styles.photoDesc}>{PHOTO_CHALLENGE.desc}</Text>
+            </View>
+
+            <TouchableOpacity style={styles.retakeBtn} onPress={handleRetakePhoto} activeOpacity={0.85}>
+                <Ionicons name="camera-reverse-outline" size={18} color="#FFFFFF" />
+                <Text style={styles.retakeBtnText}>Сделать новое фото</Text>
+            </TouchableOpacity>
+        </View>
+    </View>
+) : (
+                        <TouchableOpacity style={styles.photoCard} activeOpacity={0.8} onPress={handleTakePhoto}>
+                            <View style={styles.photoDashedBorder}>
+                                <View style={styles.photoContent}>
+                                    <View style={[styles.photoIconCircle, { backgroundColor: '#FCE7F3' }]}>
+                                        <Ionicons name="camera" size={24} color="#DB2777" />
+                                    </View>
+                                    <View style={{ flex: 1 }}>
+                                        <Text style={styles.photoTitle}>{PHOTO_CHALLENGE.title}</Text>
+                                        <Text style={styles.photoDesc}>{PHOTO_CHALLENGE.desc}</Text>
+                                    </View>
+                                    <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
                                 </View>
-                                <Ionicons name="chevron-forward" size={20} color="#CBD5E1" />
                             </View>
-                        </View>
-                    </TouchableOpacity>
+                        </TouchableOpacity>
+                    )}
                 </View>
 
                 <View style={[styles.sectionContainer, { marginTop: 8 }]}>
@@ -569,22 +659,143 @@ const styles = StyleSheet.create({
     routineLabel: { fontSize: 15, fontWeight: '600', color: '#1E293B' },
     checkbox: { width: 24, height: 24, borderRadius: 8, borderWidth: 2, justifyContent: 'center', alignItems: 'center' },
     divider: { height: 1, backgroundColor: '#F1F5F9', marginLeft: 68 },
-    wordCard: { marginHorizontal: 24, backgroundColor: '#FFF', borderRadius: 20, padding: 16, flexDirection: 'row', alignItems: 'center', borderWidth: 1, borderColor: '#F1F5F9' },
-    wordIcon: { width: 50, height: 50, borderRadius: 16, backgroundColor: '#FFF7ED', justifyContent: 'center', alignItems: 'center', marginRight: 16 },
-    wordTitle: { fontSize: 16, fontWeight: '700', color: '#1E293B', marginBottom: 4 },
-    wordDesc: { fontSize: 12, color: '#64748B', lineHeight: 16 },
-    wordPlayBtn: { padding: 10 },
     parentCard: { marginHorizontal: 24, borderRadius: 20, padding: 20 },
     parentHeader: { flexDirection: 'row', alignItems: 'flex-start' },
     parentTitle: { fontSize: 16, fontWeight: '800', color: '#164E63', marginBottom: 6 },
     parentText: { fontSize: 13, color: '#155E75', lineHeight: 19 },
     parentIcon: { marginLeft: 16, opacity: 0.8 },
-    photoCard: { marginHorizontal: 24, backgroundColor: '#FFF', borderRadius: 20, overflow: 'hidden' },
-    photoDashedBorder: { borderWidth: 1.5, borderColor: '#F9A8D4', borderStyle: 'dashed', borderRadius: 20, padding: 4 },
-    photoContent: { flexDirection: 'row', alignItems: 'center', padding: 12, backgroundColor: '#FFF0F7', borderRadius: 16 },
-    photoIconCircle: { width: 44, height: 44, borderRadius: 22, justifyContent: 'center', alignItems: 'center', marginRight: 16 },
-    photoTitle: { fontSize: 15, fontWeight: '700', color: '#9D174D', marginBottom: 2 },
-    photoDesc: { fontSize: 12, color: '#BE185D' },
+photoCard: {
+    marginHorizontal: 24,
+    backgroundColor: '#FFF',
+    borderRadius: 24,
+    overflow: 'hidden',
+    shadowColor: '#F472B6',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    elevation: 5,
+},
+
+photoDashedBorder: {
+    borderWidth: 2,
+    borderColor: '#F9A8D4',
+    borderStyle: 'dashed',
+    borderRadius: 24,
+    padding: 5,
+},
+
+photoContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: '#FFF0F7',
+    borderRadius: 18,
+},
+
+photoIconCircle: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 16,
+},
+
+photoTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#9D174D',
+    marginBottom: 4,
+},
+
+photoDesc: {
+    fontSize: 13,
+    color: '#BE185D',
+    lineHeight: 18,
+},
+
+photoPreviewCard: {
+    marginHorizontal: 24,
+    backgroundColor: '#FFF',
+    borderRadius: 24,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#FCE7F3',
+    shadowColor: '#F472B6',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.14,
+    shadowRadius: 18,
+    elevation: 6,
+},
+
+photoPreviewImage: {
+    width: '100%',
+    height: 280,
+    backgroundColor: '#F8FAFC',
+},
+
+photoPreviewOverlay: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 92,
+    paddingHorizontal: 16,
+    paddingBottom: 14,
+    justifyContent: 'flex-end',
+},
+
+photoBadge: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FCE7F3',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 999,
+    gap: 6,
+},
+
+photoBadgeText: {
+    color: '#BE185D',
+    fontSize: 12,
+    fontWeight: '800',
+},
+
+photoPreviewFooter: {
+    padding: 16,
+    backgroundColor: '#FFF8FB',
+},
+
+photoSavedText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#DB2777',
+    marginBottom: 6,
+},
+
+retakeBtn: {
+    marginTop: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#EC4899',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 16,
+    gap: 8,
+    alignSelf: 'flex-start',
+    shadowColor: '#EC4899',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 4,
+},
+
+retakeBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+},
     factCard: { marginHorizontal: 24, borderRadius: 24, padding: 24 },
     factHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
     factLabel: { color: '#94A3B8', fontSize: 12, fontWeight: '800', letterSpacing: 1 },

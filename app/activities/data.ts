@@ -379,7 +379,7 @@ const buildLibrary = (): ActivityItem[] => {
           ].filter(Boolean),
           skills: [meta.shortLabel, task.obj.split(' ')[0], 'Внимание'],
           milestone: i === 1 ? `Освоение навыка: ${task.t}` : undefined,
-          videoUrl: "https://storage.googleapis.com/my-app-videos-01/videomy.mp4"
+          videoUrl: "https://storage.googleapis.com/my-app-videos-01/ertedamu.mp4"
         });
       }
     });
