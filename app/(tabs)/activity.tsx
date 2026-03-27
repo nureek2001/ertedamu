@@ -42,7 +42,13 @@ const generateTimeline = () => {
 const TIMELINE_DATA = generateTimeline();
 
 const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
-
+const normalizeTimelineMonth = (months: number) => {
+  if (months <= 1) return 1;
+  if (months <= 36) return months;
+  if (months <= 48) return 48;
+  if (months <= 60) return 60;
+  return 72;
+};
 type Child = {
   id: number;
   family: number;
@@ -193,7 +199,7 @@ const ActivityScreen: React.FC = () => {
 
       // @ts-ignore
       const ageMonths = resolvedChild?.ageMonths || 1;
-      setSelectedMonth(ageMonths < 1 ? 1 : ageMonths);
+      setSelectedMonth(normalizeTimelineMonth(ageMonths));
 
       await fetchProgress(resolvedId);
     } catch (e: any) {
@@ -242,6 +248,9 @@ useEffect(() => {
     try {
       setActiveChildIndex(index);
       setActiveChildId(child.id);
+
+      //@ts-ignore
+      setSelectedMonth(normalizeTimelineMonth(child.ageMonths || 1))
 
       await api.post('/api/families/active-child/set/', {
         child_id: Number(child.id),

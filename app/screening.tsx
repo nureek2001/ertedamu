@@ -36,6 +36,14 @@ type Child = {
   } | null;
 };
 
+type ActiveChildResponse = {
+  id: number;
+  user: number;
+  family: number;
+  active_child: Child | null;
+  updated_at: string;
+};
+
 type ScreeningQuestion = {
   id: number;
   order: number;
@@ -87,6 +95,33 @@ type ScreeningSession = {
     question_id?: number;
     answer_value: string;
   }>;
+  summary?: string | null;
+  detailed_analysis?: Array<{
+    question_id: number;
+    order: number;
+    question_text: string;
+    answer_value: string;
+    status: 'ok' | 'risk' | 'attention';
+    recommendation?: string | null;
+  }>;
+  general_recommendations?: string[];
+};
+
+type AvailabilityItem = {
+  template: {
+    id: number;
+    title: string;
+    code: string;
+    template_type: string;
+    description: string | null;
+    min_age_months: number;
+    max_age_months: number;
+    version: string;
+    is_active: boolean;
+    cooldown_days: number;
+  };
+  available: boolean;
+  reason: string | null;
 };
 
 type AnswerMap = Record<number, 'yes' | 'no'>;
@@ -125,7 +160,8 @@ export default function ScreeningScreen() {
     childId?: string;
   }>();
 
-  const sessionId = params.sessionId ? Number(params.sessionId) : null;
+  const initialSessionId = params.sessionId ? Number(params.sessionId) : null;
+  const childIdFromParams = params.childId ? Number(params.childId) : null;
 
   const [session, setSession] = useState<ScreeningSession | null>(null);
   const [template, setTemplate] = useState<ScreeningTemplate | null>(null);
@@ -137,18 +173,60 @@ export default function ScreeningScreen() {
 
   useEffect(() => {
     const loadData = async () => {
-      if (!sessionId) {
-        Alert.alert('Ошибка', 'Сессия скрининга не найдена');
-        router.back();
-        return;
-      }
-
       try {
         setLoading(true);
 
-        const sessionRes = await api.get<ScreeningSession>(
-          `/api/screenings/sessions/${sessionId}/`
-        );
+        let sessionRes: ScreeningSession | null = null;
+
+        if (initialSessionId) {
+          sessionRes = await api.get<ScreeningSession>(
+            `/api/screenings/sessions/${initialSessionId}/`
+          );
+        } else {
+          let activeChild: Child | null = null;
+
+          if (childIdFromParams) {
+            const children = await api.get<Child[]>('/api/families/children/');
+            activeChild = children.find((c) => c.id === childIdFromParams) || null;
+          } else {
+            const activeRes = await api.get<ActiveChildResponse>('/api/families/active-child/');
+            activeChild = activeRes?.active_child || null;
+          }
+
+          if (!activeChild) {
+            Alert.alert('Ошибка', 'Активный ребёнок не найден');
+            router.back();
+            return;
+          }
+
+          const availabilityRes = await api.get<AvailabilityItem[]>(
+            `/api/screenings/children/${activeChild.id}/availability/`
+          );
+
+          const mchatItem =
+            availabilityRes.find((item) => item.template?.code === 'mchat') || null;
+
+          if (!mchatItem) {
+            Alert.alert('Ошибка', 'Шаблон M-CHAT не найден');
+            router.back();
+            return;
+          }
+
+          if (!mchatItem.available) {
+            Alert.alert(
+              'Скрининг недоступен',
+              mchatItem.reason || 'M-CHAT сейчас недоступен для этого ребёнка'
+            );
+            router.back();
+            return;
+          }
+
+          sessionRes = await api.post<ScreeningSession>('/api/screenings/sessions/', {
+            child_id: activeChild.id,
+            template_code: 'mchat',
+            target_age_months: activeChild.age_months,
+          });
+        }
 
         setSession(sessionRes);
 
@@ -161,7 +239,10 @@ export default function ScreeningScreen() {
         const initialAnswers: AnswerMap = {};
         if (sessionRes.answers?.length) {
           for (const item of sessionRes.answers) {
-            if (item.question?.id && (item.answer_value === 'yes' || item.answer_value === 'no')) {
+            if (
+              item.question?.id &&
+              (item.answer_value === 'yes' || item.answer_value === 'no')
+            ) {
               initialAnswers[item.question.id] = item.answer_value;
             }
           }
@@ -185,7 +266,7 @@ export default function ScreeningScreen() {
     };
 
     loadData();
-  }, [sessionId]);
+  }, [initialSessionId, childIdFromParams]);
 
   const questions = template?.questions || [];
   const currentQuestion = questions[currentIndex];
@@ -194,6 +275,7 @@ export default function ScreeningScreen() {
   const answeredCount = Object.keys(answers).length;
   const progress = totalQuestions > 0 ? ((currentIndex + 1) / totalQuestions) * 100 : 0;
   const isLastQuestion = currentIndex === totalQuestions - 1;
+  const sessionId = session?.id ?? null;
 
   const canGoNext = useMemo(() => {
     if (!currentQuestion) return false;

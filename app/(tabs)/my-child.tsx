@@ -323,7 +323,7 @@ const MyChildScreen: React.FC = () => {
       }
 
       const now = new Date();
-      const currentTemplateCode = currentChild.age_months >= 16 ? 'mchat' : 'early_dev';
+      const currentTemplateCode = currentChild.age_months >= 16 && currentChild.age_months<=30 ? 'mchat' : 'early_dev';
 
       const latestSameType =
         latestScreening && latestScreening.template?.code === currentTemplateCode ? latestScreening : null;

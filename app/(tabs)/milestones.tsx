@@ -113,7 +113,13 @@ const getAgeGroupFromMonths = (m: number): AgeGroup => {
 };
 
 const clamp = (n: number, min: number, max: number) => Math.min(Math.max(n, min), max);
-
+const getTimelineValueForAge = (months: number) => {
+  if (months <= 1) return 1;
+  if (months <= 36) return months;
+  if (months <= 48) return 48;
+  if (months <= 60) return 60;
+  return 72;
+};
 const MilestonesScreen: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [progressItems, setProgressItems] = useState<
@@ -198,7 +204,7 @@ const MilestonesScreen: React.FC = () => {
 
       // @ts-ignore
       const ageMonths = resolved?.ageMonths || 1;
-      setSelectedMonth(ageMonths < 1 ? 1 : ageMonths);
+      setSelectedMonth(getTimelineValueForAge(ageMonths));
     } catch (e: any) {
       console.warn(e);
 
@@ -232,7 +238,7 @@ const MilestonesScreen: React.FC = () => {
     if (!child) return;
     // @ts-ignore
     const age = child.ageMonths || 1;
-    setSelectedMonth(age);
+    setSelectedMonth(getTimelineValueForAge(age));
   }, [activeChildIndex, childrenList]);
 
   const handleChildChange = async (index: number) => {
@@ -242,6 +248,9 @@ const MilestonesScreen: React.FC = () => {
     try {
       setActiveChildIndex(index);
       setActiveChildId(child.id);
+
+      //@ts-ignore
+      setSelectedMonth(getTimelineValueForAge(child.ageMonths || 1))
 
       await api.post('/api/families/active-child/set/', {
         child_id: Number(child.id),
@@ -261,7 +270,7 @@ const fetchProgress = useCallback(async () => {
     );
 
     setProgressItems(progress?.items || []);
-
+    console.log(progress.items)
     const ids = new Set(
       (progress?.items || [])
         .filter((item) => !!item.progress?.is_completed)
@@ -285,8 +294,8 @@ const milestonesList = useMemo(() => {
       const matchesCategory = slug === activeCategory;
 
       const monthMatch =
-        selectedMonth >= item.milestone.min_age_months &&
-        selectedMonth <= item.milestone.max_age_months;
+        item.milestone.min_age_months <= selectedMonth &&
+        item.milestone.max_age_months >= selectedMonth;
 
       return matchesCategory && monthMatch;
     })
@@ -297,7 +306,6 @@ const milestonesList = useMemo(() => {
       progress: item.progress,
     }));
 }, [progressItems, activeCategory, selectedMonth]);
-
 const handleToggle = async (id: string) => {
   const child = childrenList[activeChildIndex];
   if (!child?.id) return;
@@ -350,7 +358,7 @@ const handleToggle = async (id: string) => {
   const currentMeta = MILESTONE_META[activeCategory];
   // @ts-ignore
   const childRealAge = childrenList[activeChildIndex]?.ageMonths || 0;
-
+const childTimelineAge = getTimelineValueForAge(childRealAge);
   return (
     <SafeAreaView style={styles.screen} edges={['top']}>
       <AppHeader
@@ -376,7 +384,7 @@ const handleToggle = async (id: string) => {
           >
             {TIMELINE_DATA.map((item) => {
               const isSel = item.value === selectedMonth;
-              const isCurrentAge = item.value === childRealAge;
+              const isCurrentAge = item.value === childTimelineAge;
 
               return (
                 <TouchableOpacity
